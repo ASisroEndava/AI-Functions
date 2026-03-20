@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Log Analyzer Dashboard (AWS)</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0f1117;--surface:#1a1d27;--sh:#222632;--border:#2a2e3a;--text:#e4e4e7;--muted:#9ca3af;--accent:#6366f1;--debug:#6b7280;--info:#06b6d4;--warn:#f59e0b;--err:#ef4444;--crit:#a855f7}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+.c{max-width:1280px;margin:0 auto;padding:24px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px}
+header h1{font-size:1.4rem;font-weight:700}
+header h1 em{color:var(--accent);font-style:normal}
+.ha{display:flex;gap:8px;flex-wrap:wrap}
+btn,button{padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:.84rem;font-weight:500;transition:all .15s}
+button:hover{background:var(--sh);border-color:var(--accent)}
+button.p{background:var(--accent);border-color:var(--accent)}
+button.d{border-color:var(--err);color:var(--err)}
+.api-bar{display:flex;gap:8px;align-items:center;margin-bottom:18px}
+.api-bar label{font-size:.78rem;color:var(--muted)}
+.api-bar input{flex:1;padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--accent);font-family:monospace;font-size:.82rem;outline:none}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px}
+.sc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;text-align:center}
+.sc .v{font-size:1.9rem;font-weight:700;line-height:1.2}
+.sc .l{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:4px}
+.sc.total .v{color:var(--text)}.sc.debug .v{color:var(--debug)}.sc.info .v{color:var(--info)}.sc.warning .v{color:var(--warn)}.sc.error .v{color:var(--err)}.sc.critical .v{color:var(--crit)}
+.filters{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+.filters select{padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:.84rem;outline:none}
+.tw{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:12px 14px;font-size:.73rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0}
+td{padding:10px 14px;font-size:.84rem;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}tr:hover td{background:var(--sh)}
+.b{display:inline-block;padding:3px 9px;border-radius:20px;font-size:.69rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.b-DEBUG{background:rgba(107,114,128,.15);color:var(--debug)}.b-INFO{background:rgba(6,182,212,.15);color:var(--info)}.b-WARNING{background:rgba(245,158,11,.15);color:var(--warn)}.b-ERROR{background:rgba(239,68,68,.15);color:var(--err)}.b-CRITICAL{background:rgba(168,85,247,.15);color:var(--crit)}
+.sug{color:var(--warn);font-style:italic}
+.cat{font-size:.71rem;padding:2px 7px;border-radius:4px;background:rgba(99,102,241,.12);color:var(--accent);font-weight:500}
+.src{font-size:.74rem;color:var(--accent);font-weight:500}
+.raw{font-family:'Cascadia Code','Fira Code',monospace;font-size:.76rem;color:var(--muted);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.raw.exp{white-space:normal;word-break:break-all}
+.empty{text-align:center;padding:50px 20px;color:var(--muted)}
+.empty p{margin-top:6px;font-size:.88rem}
+.st{font-size:1.1rem;font-weight:600;margin:28px 0 14px;display:flex;align-items:center;gap:8px}
+.ic{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:10px}
+.ic h3{font-size:.95rem;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.ic .m{font-size:.8rem;color:var(--muted);margin-bottom:5px}
+.ic ul{list-style:none;padding:0;margin:6px 0 0}
+.ic li{font-size:.82rem;padding:3px 0}
+.ic li::before{content:'\2192 ';color:var(--accent)}
+.bs{display:inline-block;padding:2px 7px;border-radius:20px;font-size:.69rem;font-weight:700;text-transform:uppercase}
+.bs.low{background:rgba(107,114,128,.15);color:var(--debug)}.bs.medium{background:rgba(245,158,11,.15);color:var(--warn)}.bs.high{background:rgba(239,68,68,.15);color:var(--err)}.bs.critical{background:rgba(168,85,247,.15);color:var(--crit)}
+.toast{position:fixed;bottom:24px;right:24px;padding:11px 18px;border-radius:10px;background:var(--surface);border:1px solid var(--border);color:var(--text);font-size:.84rem;z-index:1000;opacity:0;transform:translateY(10px);transition:all .3s}
+.toast.show{opacity:1;transform:translateY(0)}
+</style>
+</head>
+<body>
+<div class="c">
+  <header>
+    <h1>&#x1F4CA; <em>Log Analyzer</em> <small style="font-size:.55em;color:var(--muted)">AWS</small></h1>
+    <div class="ha">
+      <button onclick="runCorrelation()" style="border-color:var(--crit);color:var(--crit)">&#x1F517; Correlate</button>
+      <button onclick="refreshData()">&#x1F504; Refresh</button>
+      <button class="d" onclick="clearLogs()">&#x1F5D1; Clear</button>
+    </div>
+  </header>
+  <div class="api-bar">
+    <label>API:</label>
+    <input id="api-base" placeholder="https://xxx.execute-api.region.amazonaws.com/prod">
+    <button class="p" onclick="saveApi()" style="padding:5px 10px;font-size:.78rem">Set</button>
+  </div>
+  <div class="stats">
+    <div class="sc total"><div class="v" id="s-total">-</div><div class="l">Total</div></div>
+    <div class="sc critical"><div class="v" id="s-CRITICAL">0</div><div class="l">Critical</div></div>
+    <div class="sc error"><div class="v" id="s-ERROR">0</div><div class="l">Error</div></div>
+    <div class="sc warning"><div class="v" id="s-WARNING">0</div><div class="l">Warning</div></div>
+    <div class="sc info"><div class="v" id="s-INFO">0</div><div class="l">Info</div></div>
+    <div class="sc debug"><div class="v" id="s-DEBUG">0</div><div class="l">Debug</div></div>
+  </div>
+  <div class="filters">
+    <select id="f-level" onchange="fetchLogs()"><option value="">All Levels</option><option>CRITICAL</option><option>ERROR</option><option>WARNING</option><option>INFO</option><option>DEBUG</option></select>
+    <select id="f-cat" onchange="fetchLogs()"><option value="">All Categories</option></select>
+  </div>
+  <div class="tw"><table><thead><tr><th>Level</th><th>Source</th><th>Category</th><th>Summary</th><th>Suggestion</th><th>Raw</th></tr></thead><tbody id="tbl"></tbody></table></div>
+  <div class="st">&#x1F517; Incident Reports</div>
+  <div id="incidents"></div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+function getApi(){return(document.getElementById('api-base').value||'').replace(/\/+$/,'')}
+function saveApi(){const u=getApi();if(u){localStorage.setItem('la_api',u);showToast('API URL saved');refreshData()}}
+function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML}
+function showToast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000)}
+
+async function fetchStats(){
+  const api=getApi();if(!api)return;
+  try{
+    const r=await fetch(api+'/api/stats');const d=await r.json();
+    document.getElementById('s-total').textContent=d.total;
+    ['DEBUG','INFO','WARNING','ERROR','CRITICAL'].forEach(lv=>{const el=document.getElementById('s-'+lv);if(el)el.textContent=d.by_level[lv]||0});
+    const cf=document.getElementById('f-cat');const cv=cf.value;
+    cf.innerHTML='<option value="">All Categories</option>';
+    if(d.by_category){Object.keys(d.by_category).sort().forEach(c=>{if(c){const o=document.createElement('option');o.value=c;o.textContent=c+' ('+d.by_category[c]+')';cf.appendChild(o)}})}
+    cf.value=cv;
+  }catch(e){console.error('stats err',e)}
+}
+
+async function fetchLogs(){
+  const api=getApi();if(!api)return;
+  try{
+    const p=new URLSearchParams();
+    const lv=document.getElementById('f-level').value;
+    const cat=document.getElementById('f-cat').value;
+    if(lv)p.set('level',lv);if(cat)p.set('category',cat);p.set('limit','200');
+    const r=await fetch(api+'/api/logs?'+p);const logs=await r.json();
+    const tb=document.getElementById('tbl');
+    if(!logs.length){tb.innerHTML='<tr><td colspan="6"><div class="empty"><p>No logs found</p></div></td></tr>';return}
+    tb.innerHTML=logs.map(l=>'<tr><td><span class="b b-'+l.log_level+'">'+l.log_level+'</span></td><td><span class="src">'+(l.source||'-')+'</span></td><td><span class="cat">'+esc(l.category||'unknown')+'</span></td><td>'+esc(l.summary)+'</td><td>'+(l.suggestion!=='N/A'?'<span class="sug">'+esc(l.suggestion)+'</span>':'<span style="color:var(--muted)">\u2014</span>')+'</td><td><span class="raw" onclick="this.classList.toggle(\'exp\')">'+esc(l.raw)+'</span></td></tr>').join('');
+  }catch(e){console.error('logs err',e)}
+}
+
+async function fetchIncidents(){
+  const api=getApi();if(!api)return;
+  try{
+    const r=await fetch(api+'/api/incidents');const list=await r.json();
+    const el=document.getElementById('incidents');
+    if(!list.length){el.innerHTML='<div class="empty" style="padding:25px"><p>No incidents yet. Click Correlate to generate one.</p></div>';return}
+    el.innerHTML=list.map(i=>'<div class="ic"><h3><span class="bs '+i.severity+'">'+i.severity+'</span> '+esc(i.title)+'</h3><div class="m"><b>Root cause:</b> '+esc(i.root_cause)+'</div><div class="m"><b>Services:</b> '+i.affected_services.map(s=>'<span class="src">'+esc(s)+'</span>').join(', ')+'</div><div class="m"><b>Lines:</b> '+i.related_log_lines.join(', ')+'</div><ul>'+i.recommended_actions.map(a=>'<li>'+esc(a)+'</li>').join('')+'</ul></div>').join('');
+  }catch(e){console.error('incidents err',e)}
+}
+
+async function runCorrelation(){
+  const api=getApi();if(!api){showToast('Set API URL first');return}
+  showToast('Correlating...');
+  try{const r=await fetch(api+'/api/correlate',{method:'POST'});const d=await r.json();if(r.ok){showToast('Incident: '+d.title);fetchIncidents()}else{showToast(d.detail||'Error')}}catch(e){showToast('Correlation failed')}
+}
+
+async function clearLogs(){
+  if(!confirm('Delete ALL logs and incidents?'))return;
+  const api=getApi();if(!api)return;
+  try{const r=await fetch(api+'/api/logs',{method:'DELETE'});const d=await r.json();showToast('Deleted '+d.deleted+' items');refreshData()}catch(e){showToast('Failed to clear')}
+}
+
+function refreshData(){fetchStats();fetchLogs();fetchIncidents()}
+
+// On load: restore saved API URL and fetch data
+(function(){
+  const saved=localStorage.getItem('la_api');
+  if(saved){document.getElementById('api-base').value=saved;refreshData()}
+})();
+</script>
+</body>
+</html>
