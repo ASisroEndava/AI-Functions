@@ -10,9 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from analyzer import LogAnalysis, analyze_log
+from analyzer import LogAnalysis, IncidentReport, analyze_log, correlate_logs
 from log_reader import parse_log_file
-from storage import init_db, insert_logs, query_logs, get_stats, clear_logs
+from storage import init_db, insert_logs, query_logs, get_stats, clear_logs, insert_incident, query_incidents
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,8 @@ class LogEntry(BaseModel):
     log_level: str
     summary: str
     suggestion: str
+    category: str = "unknown"
+    confidence: str = "high"
     created_at: str | None = None
 
 
@@ -64,6 +66,18 @@ class StatsResponse(BaseModel):
     total: int
     by_level: dict[str, int]
     by_source: dict[str, int]
+    by_category: dict[str, int] = {}
+
+
+class IncidentEntry(BaseModel):
+    id: int | None = None
+    title: str
+    root_cause: str
+    affected_services: list[str]
+    severity: str
+    recommended_actions: list[str]
+    related_log_lines: list[int]
+    created_at: str | None = None
 
 
 # --- Endpoints ---
@@ -72,12 +86,13 @@ class StatsResponse(BaseModel):
 def list_logs(
     level: str | None = Query(None, description="Filter by log level"),
     source: str | None = Query(None, description="Filter by source"),
+    category: str | None = Query(None, description="Filter by category"),
     search: str | None = Query(None, description="Search in raw log or summary"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
     """Lista logs procesados con filtros opcionales."""
-    return query_logs(log_level=level, source=source, search=search, limit=limit, offset=offset)
+    return query_logs(log_level=level, source=source, category=category, search=search, limit=limit, offset=offset)
 
 
 @app.get("/api/stats", response_model=StatsResponse)
@@ -173,6 +188,40 @@ def delete_logs():
     """Elimina todos los logs de la base de datos."""
     count = clear_logs()
     return {"deleted": count}
+
+
+@app.post("/api/correlate", response_model=IncidentEntry)
+def correlate():
+    """Analiza todos los logs WARNING/ERROR/CRITICAL y genera un reporte de incidente."""
+    logs = query_logs(limit=500)
+    problem_logs = [
+        l for l in logs
+        if l["log_level"] in ("WARNING", "ERROR", "CRITICAL")
+    ]
+    if not problem_logs:
+        raise HTTPException(status_code=404, detail="No problem logs to correlate")
+
+    analyses = [
+        {
+            "line": l["line"],
+            "raw": l["raw"],
+            "severity": l["log_level"],
+            "category": l.get("category", "unknown"),
+            "summary": l["summary"],
+            "suggestion": l["suggestion"],
+        }
+        for l in problem_logs
+    ]
+    report = correlate_logs(analyses)
+    data = report.model_dump()
+    insert_incident(data)
+    return data
+
+
+@app.get("/api/incidents", response_model=list[IncidentEntry])
+def list_incidents():
+    """Lista todos los reportes de incidentes."""
+    return query_incidents()
 
 
 @app.get("/", response_class=HTMLResponse)

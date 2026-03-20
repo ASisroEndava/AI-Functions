@@ -230,6 +230,77 @@
 
         .toast.show { opacity: 1; transform: translateY(0); }
 
+        .section-title {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin: 32px 0 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .incident-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 12px;
+        }
+
+        .incident-card h3 {
+            font-size: 1rem;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .incident-card .meta {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .incident-card .actions-list {
+            list-style: none;
+            padding: 0;
+            margin: 8px 0 0;
+        }
+
+        .incident-card .actions-list li {
+            font-size: 0.83rem;
+            padding: 4px 0;
+            color: var(--text);
+        }
+
+        .incident-card .actions-list li::before {
+            content: '\2192 ';
+            color: var(--accent);
+        }
+
+        .badge-severity {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .badge-severity.low      { background: rgba(107,114,128,0.15); color: var(--debug); }
+        .badge-severity.medium   { background: rgba(245,158,11,0.15);  color: var(--warning); }
+        .badge-severity.high     { background: rgba(239,68,68,0.15);   color: var(--error); }
+        .badge-severity.critical { background: rgba(168,85,247,0.15);  color: var(--critical); }
+
+        .category-tag {
+            font-size: 0.72rem;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: rgba(99,102,241,0.12);
+            color: var(--accent);
+            font-weight: 500;
+        }
+
         @media (max-width: 768px) {
             .container { padding: 16px; }
             .raw-log { max-width: 200px; }
@@ -242,7 +313,8 @@
         <header>
             <h1>📊 <span>Log Analyzer</span> Dashboard</h1>
             <div class="header-actions">
-                <button onclick="importLogs()" class="primary">📥 Import analysis_results.json</button>
+                <button onclick="importLogs()" class="primary">📥 Import JSON</button>
+                <button onclick="runCorrelation()" style="border-color:var(--critical);color:var(--critical)">🔗 Correlate Incidents</button>
                 <button onclick="refreshData()">🔄 Refresh</button>
                 <button onclick="clearLogs()" class="danger">🗑 Clear All</button>
             </div>
@@ -288,6 +360,9 @@
             <select id="source-filter" onchange="fetchLogs()">
                 <option value="">All Sources</option>
             </select>
+            <select id="category-filter" onchange="fetchLogs()">
+                <option value="">All Categories</option>
+            </select>
         </div>
 
         <div class="table-wrapper">
@@ -296,6 +371,7 @@
                     <tr>
                         <th>Level</th>
                         <th>Source</th>
+                        <th>Category</th>
                         <th>Summary</th>
                         <th>Suggestion</th>
                         <th>Raw Log</th>
@@ -305,6 +381,9 @@
                 </tbody>
             </table>
         </div>
+
+        <div class="section-title">🔗 Incident Reports</div>
+        <div id="incidents-list"></div>
     </div>
 
     <div class="toast" id="toast"></div>
@@ -342,6 +421,21 @@
                     }
                 });
                 sourceFilter.value = currentValue;
+
+                const catFilter = document.getElementById('category-filter');
+                const currentCat = catFilter.value;
+                catFilter.innerHTML = '<option value="">All Categories</option>';
+                if (data.by_category) {
+                    Object.keys(data.by_category).sort().forEach(cat => {
+                        if (cat) {
+                            const opt = document.createElement('option');
+                            opt.value = cat;
+                            opt.textContent = `${cat} (${data.by_category[cat]})`;
+                            catFilter.appendChild(opt);
+                        }
+                    });
+                }
+                catFilter.value = currentCat;
             } catch (e) {
                 console.error('Failed to fetch stats:', e);
             }
@@ -352,10 +446,12 @@
                 const params = new URLSearchParams();
                 const level = document.getElementById('level-filter').value;
                 const source = document.getElementById('source-filter').value;
+                const category = document.getElementById('category-filter').value;
                 const search = document.getElementById('search').value;
 
                 if (level) params.set('level', level);
                 if (source) params.set('source', source);
+                if (category) params.set('category', category);
                 if (search) params.set('search', search);
                 params.set('limit', '200');
 
@@ -367,7 +463,7 @@
                 if (logs.length === 0) {
                     tbody.innerHTML = `
                         <tr>
-                            <td colspan="5">
+                            <td colspan="6">
                                 <div class="empty-state">
                                     <p>📭 No logs found</p>
                                     <p>Import logs using the button above or analyze new logs via the API.</p>
@@ -381,6 +477,7 @@
                     <tr>
                         <td><span class="badge badge-${log.log_level}">${log.log_level}</span></td>
                         <td><span class="source-tag">${log.source || '-'}</span></td>
+                        <td><span class="category-tag">${escapeHtml(log.category || 'unknown')}</span></td>
                         <td>${escapeHtml(log.summary)}</td>
                         <td>${log.suggestion !== 'N/A'
                             ? `<span class="suggestion">${escapeHtml(log.suggestion)}</span>`
@@ -420,9 +517,56 @@
             }
         }
 
+        async function fetchIncidents() {
+            try {
+                const res = await fetch(`${API}/api/incidents`);
+                const incidents = await res.json();
+                const container = document.getElementById('incidents-list');
+
+                if (incidents.length === 0) {
+                    container.innerHTML = '<div class="empty-state" style="padding:30px"><p>No incident reports yet. Click "Correlate Incidents" to generate one.</p></div>';
+                    return;
+                }
+
+                container.innerHTML = incidents.map(inc => `
+                    <div class="incident-card">
+                        <h3>
+                            <span class="badge-severity ${inc.severity}">${inc.severity}</span>
+                            ${escapeHtml(inc.title)}
+                        </h3>
+                        <div class="meta"><strong>Root cause:</strong> ${escapeHtml(inc.root_cause)}</div>
+                        <div class="meta"><strong>Services:</strong> ${inc.affected_services.map(s => `<span class="source-tag">${escapeHtml(s)}</span>`).join(', ')}</div>
+                        <div class="meta"><strong>Related lines:</strong> ${inc.related_log_lines.join(', ')}</div>
+                        <ul class="actions-list">
+                            ${inc.recommended_actions.map(a => `<li>${escapeHtml(a)}</li>`).join('')}
+                        </ul>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('Failed to fetch incidents:', e);
+            }
+        }
+
+        async function runCorrelation() {
+            showToast('🔗 Correlating logs...');
+            try {
+                const res = await fetch(`${API}/api/correlate`, { method: 'POST' });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(`✅ Incident detected: ${data.title}`);
+                    fetchIncidents();
+                } else {
+                    showToast(`❌ ${data.detail}`);
+                }
+            } catch (e) {
+                showToast('❌ Failed to correlate');
+            }
+        }
+
         function refreshData() {
             fetchStats();
             fetchLogs();
+            fetchIncidents();
         }
 
         function escapeHtml(text) {
