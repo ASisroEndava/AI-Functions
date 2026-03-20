@@ -1,0 +1,92 @@
+[
+  {
+    "line": 1,
+    "timestamp": "2024-01-15 10:23:45",
+    "source": "auth-service",
+    "raw": "2024-01-15 10:23:45 [auth-service] User login successful for user_id=4521",
+    "log_level": "INFO",
+    "summary": "User login successful for user_id=4521 in auth-service at 2024-01-15 10:23:45.",
+    "suggestion": "N/A"
+  },
+  {
+    "line": 2,
+    "timestamp": "2024-01-15 10:23:46",
+    "source": "auth-service",
+    "raw": "2024-01-15 10:23:46 [auth-service] JWT token generated, expires_in=3600s",
+    "log_level": "INFO",
+    "summary": "Auth service successfully generated JWT token with 3600 second expiration time.",
+    "suggestion": "N/A"
+  },
+  {
+    "line": 3,
+    "timestamp": "2024-01-15 10:24:01",
+    "source": "api-gateway",
+    "raw": "2024-01-15 10:24:01 [api-gateway] GET /api/v1/users/4521 200 OK (43ms)",
+    "log_level": "INFO",
+    "summary": "Successful GET request to /api/v1/users/4521 returned 200 OK with 43ms response time.",
+    "suggestion": "N/A"
+  },
+  {
+    "line": 4,
+    "timestamp": "2024-01-15 10:24:15",
+    "source": "db-pool",
+    "raw": "2024-01-15 10:24:15 [db-pool] Connection pool exhausted, 0 available connections out of 50 max. Requests queuing.",
+    "log_level": "ERROR",
+    "summary": "Database connection pool exhausted with 0 available connections causing request queuing.",
+    "suggestion": "Increase connection pool size or investigate and fix connection leaks causing pool exhaustion."
+  },
+  {
+    "line": 5,
+    "timestamp": "2024-01-15 10:24:16",
+    "source": "api-gateway",
+    "raw": "2024-01-15 10:24:16 [api-gateway] POST /api/v1/orders timeout after 30000ms - upstream service unavailable",
+    "log_level": "ERROR",
+    "summary": "API gateway POST request to /api/v1/orders timed out after 30 seconds due to upstream service unavailability.",
+    "suggestion": "Check upstream service health and connectivity, verify service is running and accessible."
+  },
+  {
+    "line": 6,
+    "timestamp": "2024-01-15 10:24:17",
+    "source": "payment-service",
+    "raw": "2024-01-15 10:24:17 [payment-service] Failed to process payment for order_id=8834: ConnectionRefusedError to payment gateway at 10.0.3.45:443",
+    "log_level": "ERROR",
+    "summary": "Payment processing failed for order 8834 due to connection refused error to payment gateway.",
+    "suggestion": "Check payment gateway connectivity and verify network access to 10.0.3.45:443."
+  },
+  {
+    "line": 7,
+    "timestamp": "2024-01-15 10:24:18",
+    "source": "db-pool",
+    "raw": "2024-01-15 10:24:18 [db-pool] WARNING: Connection leak detected. Connection held for 245s without release by thread-pool-worker-12",
+    "log_level": "WARNING",
+    "summary": "Database connection leak detected, held for 245 seconds without release by thread-pool-worker-12.",
+    "suggestion": "Review thread-pool-worker-12 code to ensure proper connection cleanup and implement connection timeout mechanisms."
+  },
+  {
+    "line": 8,
+    "timestamp": "2024-01-15 10:24:20",
+    "source": "api-gateway",
+    "raw": "2024-01-15 10:24:20 [api-gateway] GET /api/v1/products 200 OK (12ms)",
+    "log_level": "INFO",
+    "summary": "API gateway successfully processed GET request to /api/v1/products with 200 OK response in 12ms.",
+    "suggestion": "N/A"
+  },
+  {
+    "line": 9,
+    "timestamp": "2024-01-15 10:24:25",
+    "source": "monitoring",
+    "raw": "2024-01-15 10:24:25 [monitoring] Disk usage on /data volume at 94%. Threshold is 90%.",
+    "log_level": "WARNING",
+    "summary": "Disk usage on /data volume exceeded threshold at 94% (threshold: 90%).",
+    "suggestion": "Free up disk space by removing old files or logs, or consider expanding storage capacity."
+  },
+  {
+    "line": 10,
+    "timestamp": "2024-01-15 10:24:30",
+    "source": "auth-service",
+    "raw": "2024-01-15 10:24:30 [auth-service] CRITICAL: SSL certificate for auth.example.com expires in 2 days",
+    "log_level": "CRITICAL",
+    "summary": "SSL certificate for auth.example.com expires in 2 days, requiring immediate renewal.",
+    "suggestion": "Renew the SSL certificate for auth.example.com immediately to prevent service disruption."
+  }
+]
