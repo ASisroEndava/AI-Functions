@@ -29,6 +29,9 @@ class LogAnalyzerStack(cdk.Stack):
     def __init__(self, scope: Construct, cid: str, **kwargs) -> None:
         super().__init__(scope, cid, **kwargs)
 
+        cdk.Tags.of(self).add("owner", "ariel.sisro@endava.com")
+        cdk.Tags.of(self).add("project", "AI Functions investigation project")
+
         shared_env = self._provision_tables()
         layer = self._build_layer()
         bedrock = self._bedrock_policy()

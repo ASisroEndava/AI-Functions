@@ -10,6 +10,9 @@ from typing import Literal
 from ai_functions import ai_function
 from ai_functions.types import PostConditionResult
 from pydantic import BaseModel
+from strands.models.bedrock import BedrockModel
+
+_MODEL = BedrockModel(model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0")
 
 
 # ── Schemas ──────────────────────────────────────────────────────────
@@ -36,7 +39,7 @@ class IncidentReport(BaseModel):
 
 # ── Step 1: Classify severity ───────────────────────────────────────
 
-@ai_function()
+@ai_function(model=_MODEL)
 def classify_severity(log_entry: str) -> LogLevel:
     """
     Classify the severity level of this log entry.
@@ -49,7 +52,7 @@ def classify_severity(log_entry: str) -> LogLevel:
 
 # ── Step 2: Categorize ──────────────────────────────────────────────
 
-@ai_function()
+@ai_function(model=_MODEL)
 def categorize_log(log_entry: str) -> str:
     """
     Classify this log entry into exactly one category.
@@ -70,7 +73,7 @@ def check_summary_length(result: str) -> None:
     assert word_count <= 30, f"Summary has {word_count} words, must be 30 or fewer."
 
 
-@ai_function(post_conditions=[check_summary_length], max_attempts=3)
+@ai_function(model=_MODEL, post_conditions=[check_summary_length], max_attempts=3)
 def summarize_log(log_entry: str, severity: str, category: str) -> str:
     """
     Write a one-sentence summary (max 30 words) for this {severity} {category} log.
@@ -83,7 +86,7 @@ def summarize_log(log_entry: str, severity: str, category: str) -> str:
 
 # ── Step 4: Suggest fix ─────────────────────────────────────────────
 
-@ai_function()
+@ai_function(model=_MODEL)
 def suggest_fix(log_entry: str, severity: str, category: str, summary: str) -> str:
     """
     This is a {severity} log in the {category} category.
@@ -99,7 +102,7 @@ def suggest_fix(log_entry: str, severity: str, category: str, summary: str) -> s
 
 # ── Step 5: AI post-condition — validate suggestion quality ─────────
 
-@ai_function
+@ai_function(model=_MODEL)
 def validate_suggestion_quality(result: LogAnalysis) -> PostConditionResult:
     """
     Evaluate if the suggestion below is actionable and specific enough.
@@ -158,7 +161,7 @@ def check_incident_has_actions(result: IncidentReport) -> None:
     )
 
 
-@ai_function(post_conditions=[check_incident_has_actions], max_attempts=3)
+@ai_function(model=_MODEL, post_conditions=[check_incident_has_actions], max_attempts=3)
 def correlate_logs(log_analyses: list[dict]) -> IncidentReport:
     """
     Analyze these related log entries and determine if they represent

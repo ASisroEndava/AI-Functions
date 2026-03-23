@@ -10,9 +10,18 @@ import base64
 import gzip
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+_RUNTIME_NOISE = re.compile(
+    r"^(START |END |REPORT |INIT_START |EXTENSION |\[INFO\]\t.*\tProcessing )"
+)
+
+def _is_noise(msg: str) -> bool:
+    """Return True for Lambda runtime / internal messages."""
+    return bool(_RUNTIME_NOISE.match(msg))
 
 
 def handler(event: dict, context) -> dict:
@@ -42,7 +51,7 @@ def handler(event: dict, context) -> dict:
 
     for idx, log_event in enumerate(log_events):
         raw_message = log_event.get("message", "").strip()
-        if not raw_message:
+        if not raw_message or _is_noise(raw_message):
             continue
 
         try:
@@ -57,9 +66,12 @@ def handler(event: dict, context) -> dict:
             put_log(entry)
             processed += 1
             logger.info("Analyzed event %d: %s", idx + 1, analysis.log_level)
-        except Exception:
-            logger.exception("Failed to analyze event %d", idx + 1)
+        except Exception as exc:
+            import traceback
+            tb = traceback.format_exc()
+            logger.error("Failed to analyze event %d: %s\n%s", idx + 1, exc, tb)
             errors += 1
+            last_error = str(exc)
 
     summary = {
         "statusCode": 200,
@@ -68,6 +80,7 @@ def handler(event: dict, context) -> dict:
             "total_events": len(log_events),
             "processed": processed,
             "errors": errors,
+            "last_error": last_error if errors else None,
         }),
     }
     logger.info("Done: %s", summary["body"])

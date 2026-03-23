@@ -19,6 +19,10 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
+if (-not $env:AWS_PROFILE) {
+    $env:AWS_PROFILE = "AdministratorAccess-419466290453"
+}
+
 $PipExe = Join-Path (Join-Path (Join-Path $ScriptDir ".venv") "Scripts") "pip.exe"
 $PythonExe = Join-Path (Join-Path (Join-Path $ScriptDir ".venv") "Scripts") "python.exe"
 $LayerDir = Join-Path (Join-Path $ScriptDir "lambda_layer") "python"
@@ -29,8 +33,16 @@ Write-Host "`n=== Log Analyzer AWS Deploy ===" -ForegroundColor Cyan
 # ── Step 1: Python venv for CDK ─────────────────────────────────────
 Write-Host "`n[1/5] Setting up CDK virtual environment..." -ForegroundColor Yellow
 if (-not (Test-Path $PipExe)) {
-    Write-Host "   Creating .venv (py -m venv)..." -ForegroundColor Gray
+    if (Test-Path (Join-Path $ScriptDir ".venv")) {
+        Write-Host "   Removing broken .venv (no pip)..." -ForegroundColor Gray
+        Remove-Item -Recurse -Force (Join-Path $ScriptDir ".venv")
+    }
+    Write-Host "   Creating .venv..." -ForegroundColor Gray
     py -m venv .venv
+    if (-not (Test-Path $PipExe)) {
+        Write-Host "   ERROR: venv created but pip.exe not found. Ensure Python includes pip." -ForegroundColor Red
+        exit 1
+    }
 }
 Write-Host "   Installing CDK Python packages..." -ForegroundColor Gray
 & $PipExe install -q -r requirements.txt
