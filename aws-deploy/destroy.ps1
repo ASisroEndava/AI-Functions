@@ -10,20 +10,44 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
-Write-Host "`n=== Log Analyzer AWS Destroy ===" -ForegroundColor Red
-
-if (-not (Test-Path ".venv")) {
-    Write-Host "No .venv found — was the stack ever deployed from here?" -ForegroundColor Yellow
-    exit 1
+if (-not $env:AWS_PROFILE) {
+    $env:AWS_PROFILE = "AdministratorAccess-419466290453"
 }
 
-Write-Host "Destroying LogAnalyzerStack..." -ForegroundColor Yellow
-npx cdk destroy --force
+Write-Host "`n=== Log Analyzer AWS Destroy ===" -ForegroundColor Red
 
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "`nStack destroyed successfully." -ForegroundColor Green
-} else {
-    Write-Host "`nDestroy may have failed — check CloudFormation console." -ForegroundColor Red
+$destroyed = $false
+
+if (Test-Path ".venv") {
+    $VenvScripts = Join-Path (Join-Path $ScriptDir ".venv") "Scripts"
+    $env:PATH = "$VenvScripts;$env:PATH"
+    $env:VIRTUAL_ENV = Join-Path $ScriptDir ".venv"
+
+    Write-Host "Destroying LogAnalyzerStack via CDK..." -ForegroundColor Yellow
+    npx cdk destroy --force
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "`nStack destroyed successfully." -ForegroundColor Green
+        $destroyed = $true
+    } else {
+        Write-Host "CDK destroy failed — falling back to AWS CLI..." -ForegroundColor Yellow
+    }
+}
+
+if (-not $destroyed) {
+    Write-Host "Destroying LogAnalyzerStack via AWS CLI..." -ForegroundColor Yellow
+    aws cloudformation delete-stack --stack-name LogAnalyzerStack
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "`nFailed to delete stack — check CloudFormation console." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Waiting for stack deletion to complete..." -ForegroundColor Gray
+    aws cloudformation wait stack-delete-complete --stack-name LogAnalyzerStack
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "`nStack destroyed successfully." -ForegroundColor Green
+    } else {
+        Write-Host "`nStack deletion timed out or failed — check CloudFormation console." -ForegroundColor Red
+    }
 }
 
 # Clean up local artifacts
