@@ -55,28 +55,32 @@ Write-Host "   Installing locked packages for Linux/x86_64..." -ForegroundColor 
     --implementation cp `
     --python-version 3.12 `
     --only-binary=:all: `
-    --no-deps `
-    --quiet
+    --no-deps
 if ($LASTEXITCODE -ne 0) {
     Write-Host "   ERROR: pip install failed (exit $LASTEXITCODE)" -ForegroundColor Red
     exit 1
 }
 Write-Host "   Layer built at: $LayerDir" -ForegroundColor Green
 
+# ── Activate venv for CDK ─────────────────────────────────────────────
+$VenvScripts = Join-Path (Join-Path $ScriptDir ".venv") "Scripts"
+$env:PATH = "$VenvScripts;$env:PATH"
+$env:VIRTUAL_ENV = Join-Path $ScriptDir ".venv"
+
 # ── Step 3: CDK Bootstrap ────────────────────────────────────────────
 Write-Host "`n[3/5] Bootstrapping CDK (if needed)..." -ForegroundColor Yellow
 $ErrorActionPreference = "Continue"
-npx cdk bootstrap --app "$PythonExe app.py"
+npx cdk bootstrap
 $ErrorActionPreference = "Stop"
 Write-Host "   Bootstrap step complete." -ForegroundColor Green
 
 # ── Step 4: CDK Deploy ───────────────────────────────────────────────
 Write-Host "`n[4/5] Deploying stack..." -ForegroundColor Yellow
-$cdkCmd = "npx cdk deploy --require-approval never --outputs-file cdk-outputs.json --app `"$PythonExe app.py`""
+$cdkArgs = @("cdk", "deploy", "--require-approval", "never", "--outputs-file", "cdk-outputs.json")
 if ($LogGroups) {
-    $cdkCmd += " -c log_group_names=$LogGroups"
+    $cdkArgs += @("-c", "log_group_names=$LogGroups")
 }
-Invoke-Expression $cdkCmd
+npx @cdkArgs
 if ($LASTEXITCODE -ne 0) {
     Write-Host "`nDeploy FAILED. Check the errors above." -ForegroundColor Red
     exit 1
@@ -87,9 +91,11 @@ Write-Host "`n[5/5] Deployment complete!" -ForegroundColor Green
 if (Test-Path "cdk-outputs.json") {
     $outputs = Get-Content "cdk-outputs.json" | ConvertFrom-Json
     $stack = $outputs."LogAnalyzerStack"
-    Write-Host "`n  API Gateway URL : $($stack.ApiGatewayUrl)" -ForegroundColor Cyan
-    Write-Host "  Dashboard URL   : $($stack.DashboardSiteUrl)" -ForegroundColor Cyan
-    Write-Host "  Processor Lambda: $($stack.ProcessorLambdaName)" -ForegroundColor Gray
-    Write-Host "  API Lambda      : $($stack.ApiLambdaName)" -ForegroundColor Gray
-    Write-Host "`n  Paste the API Gateway URL into the dashboard's API field.`n" -ForegroundColor Yellow
+    Write-Host "`n  API Gateway URL     : $($stack.ApiGatewayUrl)" -ForegroundColor Cyan
+    Write-Host "  Dashboard URL       : $($stack.DashboardSiteUrl)" -ForegroundColor Cyan
+    Write-Host "  Processor Lambda    : $($stack.ProcessorLambdaName)" -ForegroundColor Gray
+    Write-Host "  API Lambda          : $($stack.ApiLambdaName)" -ForegroundColor Gray
+    Write-Host "  Test Generator      : $($stack.TestGeneratorLambdaName)" -ForegroundColor Gray
+    Write-Host "`n  Paste the API Gateway URL into the dashboard's API field." -ForegroundColor Yellow
+    Write-Host "  Generate test logs:  aws lambda invoke --function-name $($stack.TestGeneratorLambdaName) --payload '{""count"":10}' out.json`n" -ForegroundColor Yellow
 }

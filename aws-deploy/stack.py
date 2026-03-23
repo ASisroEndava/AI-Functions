@@ -38,11 +38,13 @@ class LogAnalyzerStack(cdk.Stack):
         gw = self._rest_api(api_fn)
         dash_url = self._dashboard(gw.url)
         self._cw_subscriptions(processor_fn)
+        test_fn = self._test_generator_lambda(processor_fn)
 
         CfnOutput(self, "ApiGatewayUrl", value=gw.url)
         CfnOutput(self, "DashboardSiteUrl", value=dash_url)
         CfnOutput(self, "ProcessorLambdaName", value=processor_fn.function_name)
         CfnOutput(self, "ApiLambdaName", value=api_fn.function_name)
+        CfnOutput(self, "TestGeneratorLambdaName", value=test_fn.function_name)
 
     # ── DynamoDB ─────────────────────────────────────────────────────
 
@@ -180,6 +182,35 @@ class LogAnalyzerStack(cdk.Stack):
                 destination=cwdest.LambdaDestination(target),
                 filter_pattern=cwlogs.FilterPattern.all_events(),
             )
+
+    # ── Test log generator ──────────────────────────────────────────
+
+    def _test_generator_lambda(self, processor: lmb.Function) -> lmb.Function:
+        """Lambda that generates sample logs; its log group is auto-subscribed
+        to the processor so logs flow through the AI pipeline automatically."""
+        test_log_group = cwlogs.LogGroup(
+            self, "TestGenLogGroup",
+            log_group_name="/aws/lambda/log-analyzer-test-generator",
+            removal_policy=RemovalPolicy.DESTROY,
+            retention=cwlogs.RetentionDays.ONE_DAY,
+        )
+        fn = lmb.Function(
+            self, "TestGeneratorFn",
+            function_name="log-analyzer-test-generator",
+            runtime=lmb.Runtime.PYTHON_3_12,
+            handler="test_log_generator.handler",
+            code=lmb.Code.from_asset(str(_ROOT / "lambda_code")),
+            timeout=Duration.seconds(30),
+            memory_size=128,
+            log_group=test_log_group,
+        )
+        cwlogs.SubscriptionFilter(
+            self, "TestGenSubscription",
+            log_group=test_log_group,
+            destination=cwdest.LambdaDestination(processor),
+            filter_pattern=cwlogs.FilterPattern.all_events(),
+        )
+        return fn
 
     def _api_lambda(self, env: dict, layer: lmb.LayerVersion, policy: iam.PolicyStatement) -> lmb.Function:
         fn = lmb.Function(
