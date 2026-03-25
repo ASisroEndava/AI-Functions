@@ -32,7 +32,7 @@
 | FR-02.4 | **Summarization** SHALL produce a single sentence of at most 30 words. A post-condition SHALL enforce this constraint with up to 3 retry attempts. |
 | FR-02.5 | **Fix suggestion** SHALL only be generated for logs classified as `WARNING`, `ERROR`, or `CRITICAL`. For `DEBUG`/`INFO` logs, suggestion SHALL be `"N/A"`. |
 | FR-02.6 | **Suggestion validation** SHALL use an AI post-condition that evaluates whether the suggestion is actionable and specific. If validation fails, the suggestion SHALL be regenerated up to 2 times. If all attempts fail, confidence SHALL be downgraded to `"low"`. |
-| FR-02.7 | Each pipeline step SHALL use the `@ai_function` decorator from the `strands-ai-functions` library. |
+| FR-02.7 | Each pipeline step SHALL use the `@ai_function` decorator from the `ai_functions` library. |
 
 ### FR-03: Incident Correlation
 
@@ -114,7 +114,7 @@
 
 | ID | Requirement |
 |----|-------------|
-| NFR-02.1 | The system SHALL use Amazon Bedrock as the AI model provider via `strands-ai-functions`. |
+| NFR-02.1 | The system SHALL use Amazon Bedrock as the AI model provider via `ai_functions`. |
 | NFR-02.2 | **Local mode** SHALL use the library's default model (configurable via `@ai_function(model=...)`). |
 | NFR-02.3 | **Serverless mode** SHALL explicitly configure `BedrockModel(model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0")` (cross-region inference profile). |
 | NFR-02.4 | The model configuration SHALL be centralized in a single `_MODEL` constant in `analyzer.py`, shared by all AI functions. |
@@ -151,8 +151,8 @@
 | ID | Requirement |
 |----|-------------|
 | NFR-06.1 | Python >= 3.12 is required. |
-| NFR-06.2 | Local mode dependencies: `strands-ai-functions`, `fastapi`, `uvicorn`. Managed via `uv`. |
-| NFR-06.3 | Serverless Lambda dependencies: `strands-ai-functions`, `pydantic`. Packaged as a Lambda Layer. |
+| NFR-06.2 | Local mode dependencies: `ai_functions`, `fastapi`, `uvicorn`. Managed via `uv`. |
+| NFR-06.3 | Serverless Lambda dependencies: `ai_functions`, `pydantic`. Packaged as a Lambda Layer. |
 | NFR-06.4 | Infrastructure as Code: AWS CDK (Python) with `aws-cdk-lib >= 2.150.0`. |
 | NFR-06.5 | Node.js is required for the CDK CLI (`npx cdk`). |
 | NFR-06.6 | The dashboard SHALL be a single static HTML file with no build step, no JavaScript framework, and inline CSS. |

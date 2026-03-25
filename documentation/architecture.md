@@ -7,7 +7,7 @@ The Log Analyzer is a dual-mode application:
 - **Local mode**: CLI + FastAPI server running on a developer machine, persisting to SQLite.
 - **Serverless mode**: Fully managed AWS infrastructure processing CloudWatch logs in real time.
 
-Both modes share the same AI analysis pipeline built on `strands-ai-functions` with Amazon Bedrock.
+Both modes share the same AI analysis pipeline built on `ai_functions` with Amazon Bedrock.
 
 ---
 
@@ -33,7 +33,7 @@ Both modes share the same AI analysis pipeline built on `strands-ai-functions` w
 |-----------|-----------|----------------|
 | `cli.py` | Python script | Reads log file, runs pipeline, outputs to terminal + files |
 | `log_reader.py` | Python (regex) | Parses raw log files, extracts timestamp/source/message |
-| `analyzer.py` | strands-ai-functions | AI pipeline: classify → categorize → summarize → suggest → validate |
+| `analyzer.py` | ai_functions | AI pipeline: classify → categorize → summarize → suggest → validate |
 | `storage.py` | SQLite3 | CRUD operations for logs and incidents |
 | `api.py` | FastAPI + Uvicorn | REST API serving the dashboard and data endpoints |
 | `dashboard.html` | Vanilla HTML/CSS/JS | Single-page dark-themed dashboard |
@@ -80,7 +80,7 @@ Both modes share the same AI analysis pipeline built on `strands-ai-functions` w
 | `log-analyzer-test-generator` | Lambda (Python 3.12) | Generates sample logs for testing |
 | `LogAnalyzerGateway` | API Gateway (REST) | Exposes API Lambda as HTTP endpoints |
 | `DashboardSiteBucket` | S3 (static website) | Hosts the dashboard HTML |
-| `AiFuncsDepsLayer` | Lambda Layer | Shared dependencies: strands-ai-functions, pydantic |
+| `AiFuncsDepsLayer` | Lambda Layer | Shared dependencies: ai_functions, pydantic |
 | Subscription Filters | CloudWatch Logs | Routes log events to the processor Lambda |
 
 ---
@@ -167,7 +167,7 @@ The core analysis pipeline chains 5 AI function calls sequentially per log entry
 2. CloudWatch Subscription Filter triggers the Processor Lambda
 3. Lambda decodes the base64+gzipped event, extracts log messages
 4. Runtime noise (START/END/REPORT) is filtered out
-5. Each valid message passes through the AI pipeline (Bedrock via strands)
+5. Each valid message passes through the AI pipeline (Bedrock via ai_functions)
 6. Results are written to DynamoDB `log-analyzer-logs`
 7. Dashboard (S3) calls API Gateway → API Lambda → DynamoDB to display results
 
@@ -186,7 +186,7 @@ The core analysis pipeline chains 5 AI function calls sequentially per log entry
 ```
 LogAnalyzerStack
 ├── _provision_tables()         → 2 DynamoDB tables + GSIs
-├── _build_layer()              → Lambda Layer (strands-ai-functions + pydantic)
+├── _build_layer()              → Lambda Layer (ai_functions + pydantic)
 ├── _bedrock_policy()           → IAM policy for Bedrock invoke
 ├── _processor_lambda()         → CloudWatch processor function
 ├── _api_lambda()               → REST API function
@@ -246,7 +246,7 @@ Step 5: Print output URLs
 | Layer | Local Mode | Serverless Mode |
 |-------|-----------|-----------------|
 | **Language** | Python 3.12+ | Python 3.12 (Lambda runtime) |
-| **AI Framework** | strands-ai-functions | strands-ai-functions (Lambda Layer) |
+| **AI Framework** | ai_functions | ai_functions (Lambda Layer) |
 | **AI Provider** | Amazon Bedrock (default model) | Amazon Bedrock (Claude 3.5 Haiku, cross-region profile) |
 | **Web Framework** | FastAPI + Uvicorn | API Gateway + Lambda handler |
 | **Storage** | SQLite (`logs.db`) | DynamoDB (2 tables, on-demand) |

@@ -134,7 +134,7 @@ Each function uses the `@ai_function` decorator which:
 #### Serverless Model Configuration
 
 ```python
-from strands.models.bedrock import BedrockModel
+from ai_functions.models.bedrock import BedrockModel
 
 _MODEL = BedrockModel(model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0")
 
@@ -348,7 +348,7 @@ def __init__(self, scope, cid, **kwargs):
     # 2. DynamoDB tables (returns env vars dict)
     shared_env = self._provision_tables()
 
-    # 3. Lambda Layer (strands-ai-functions + pydantic)
+    # 3. Lambda Layer (ai_functions + pydantic)
     layer = self._build_layer()
 
     # 4. IAM policy for Bedrock
@@ -452,6 +452,112 @@ The Lambda Layer must contain Python packages compiled for the Lambda runtime (A
 
 Runs `npx cdk destroy --force` and cleans up local artifacts (`cdk-outputs.json`, `lambda_layer/`, `cdk.out/`).
 
+**Environment:** Must set the same environment variables as `deploy.ps1` (`AWS_PROFILE`, `AWS_PAGER`, `JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION`). These are already included in the script.
+
+### 4.4 Deployment Adjustments (validated during real deploy)
+
+The following adjustments were discovered and applied during the first successful deployment to AWS. They are already reflected in the source code and scripts, but documented here to avoid re-discovering them.
+
+#### 4.4.1 CDK Import: `LambdaDestination`
+
+`LambdaDestination` is **not** in `aws_cdk.aws_logs`. It lives in a separate module:
+
+```python
+# WRONG — raises AttributeError
+from aws_cdk import aws_logs as cwlogs
+cwlogs.LambdaDestination(fn)  # AttributeError: module has no attribute 'LambdaDestination'
+
+# CORRECT
+from aws_cdk import aws_logs_destinations as cwlogs_dest
+cwlogs_dest.LambdaDestination(fn)
+```
+
+This applies to both `_cw_subscriptions()` and `_test_generator_lambda()` in `stack.py`.
+
+#### 4.4.2 Deploy Script Environment Variables
+
+`deploy.ps1` must set the following environment variables before any AWS/CDK command:
+
+```powershell
+$env:AWS_PROFILE = "419466290453_AdministratorAccess"  # SSO profile name
+$env:AWS_PAGER = ""                                     # Prevents 'cat' not found errors on Windows
+```
+
+- **`AWS_PROFILE`**: CDK and AWS CLI need this to find the correct credentials in `~/.aws/credentials`. Without it, CDK fails with "Unable to resolve AWS account".
+- **`AWS_PAGER`**: AWS CLI defaults to `cat` as pager on some configurations, which doesn't exist on Windows. Setting it to empty disables paging.
+
+#### 4.4.3 Node.js Version Warning (JSII)
+
+Node.js 25+ triggers a noisy JSII warning during `cdk` commands. Suppress it with:
+
+```powershell
+$env:JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION = "1"
+```
+
+This is cosmetic — it does not affect deployment.
+
+#### 4.4.4 PowerShell JSON Quoting with AWS CLI
+
+PowerShell mangles inline JSON quotes when passing `--payload` to `aws lambda invoke`. The workaround is to write JSON to a file and use `fileb://`:
+
+```powershell
+# WRONG — PowerShell strips the inner quotes
+aws lambda invoke --payload '{"count": 5}' out.json
+
+# CORRECT — write to file first
+'{"count": 5}' | Out-File -Encoding ascii payload.json
+aws lambda invoke --payload fileb://payload.json --cli-binary-format raw-in-base64-out out.json
+```
+
+#### 4.4.5 SSO Credentials Expiration
+
+The AWS profile `419466290453_AdministratorAccess` uses **temporary SSO credentials** (access key + secret key + session token). These expire periodically. When expired, CDK fails with:
+
+```
+There are expired AWS credentials in your environment.
+Unable to resolve AWS account to use.
+```
+
+And AWS CLI returns:
+
+```
+ExpiredToken: The security token included in the request is expired
+```
+
+**To renew:** Open the AWS SSO portal → select account 419466290453 → AdministratorAccess → "Command line or programmatic access" → copy the fresh credentials into `%USERPROFILE%\.aws\credentials` under the `[419466290453_AdministratorAccess]` profile.
+
+#### 4.4.6 Required IAM Permissions for Deployment
+
+The deploying credential needs broad permissions because CDK creates IAM roles, Lambda functions, DynamoDB tables, API Gateway, S3 buckets, and CloudFormation stacks. The minimum policy includes:
+
+```
+cloudformation:*, s3:*, iam:*, lambda:*, dynamodb:*, apigateway:*, logs:*,
+bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream, ssm:*, ecr:*, sts:*
+```
+
+For demo/investigation, `AdministratorAccess` is recommended.
+
+#### 4.4.7 Amazon Bedrock Model Access
+
+Before deploying, the model must be enabled in the Bedrock console:
+
+1. Open Amazon Bedrock Console → **Model access**
+2. Enable **Anthropic → Claude 3.5 Haiku**
+3. Wait for status **Access granted**
+
+Without this, Lambda invocations fail with `AccessDeniedException`.
+
+#### 4.4.8 CDK Cached Credentials vs AWS CLI
+
+After renewing SSO credentials, `aws sts get-caller-identity` may succeed while `npx cdk destroy` (or `deploy`) still fails with `ExpiredToken`. This happens because CDK caches credentials separately from the AWS CLI.
+
+**Fix:** If CDK fails with `ExpiredToken` but `aws sts` works, retry the CDK command — the second invocation picks up the fresh credentials. If it persists, delete the CDK credential cache:
+
+```powershell
+# Clear CDK's cached credentials
+Remove-Item -Recurse -Force "$env:USERPROFILE\.cdk" -ErrorAction SilentlyContinue
+```
+
 ---
 
 ## 5. Key Design Decisions
@@ -460,7 +566,7 @@ Runs `npx cdk destroy --force` and cleans up local artifacts (`cdk-outputs.json`
 |----------|-----------|
 | **Chained AI functions (not single prompt)** | Each step has a focused prompt that produces better results than a single monolithic prompt. Post-conditions can target specific steps. |
 | **`for/else` retry pattern** | Pythonic way to express "retry N times, fallback if all fail" without extra flags. |
-| **Lazy imports in Lambda handlers** | Reduces cold-start time by only importing heavy dependencies (strands, boto3 table resources) when the specific code path is executed. |
+| **Lazy imports in Lambda handlers** | Reduces cold-start time by only importing heavy dependencies (ai_functions, boto3 table resources) when the specific code path is executed. |
 | **Runtime noise filter in processor** | Prevents recursive processing of the Lambda's own START/END/REPORT messages, which would waste AI calls and cause log storms. |
 | **Separate analyzer.py per mode** | Local mode uses library defaults; serverless mode needs explicit model config. Avoids conditional logic in a shared file. |
 | **DynamoDB JSON strings for list fields** | Simpler than DynamoDB native List/Map types; consistent with SQLite JSON serialization approach. |
@@ -493,7 +599,7 @@ Runs `npx cdk destroy --force` and cleans up local artifacts (`cdk-outputs.json`
 |----------|--------|---------|-------------|
 | `LOGS_TABLE` | CDK (stack env) | `dynamo_storage.py` | DynamoDB logs table name |
 | `INCIDENTS_TABLE` | CDK (stack env) | `dynamo_storage.py` | DynamoDB incidents table name |
-| `AWS_REGION` | Lambda runtime | `strands` BedrockModel | Bedrock API region (auto-set to deployment region) |
+| `AWS_REGION` | Lambda runtime | `ai_functions` BedrockModel | Bedrock API region (auto-set to deployment region) |
 
 ### CDK Context Parameters
 
