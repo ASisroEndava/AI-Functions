@@ -1,27 +1,27 @@
-"""AI Functions pipeline for log analysis — Lambda-compatible version.
-
-Same pipeline as the local version but without SQLite or FastAPI dependencies.
-Uses strands-ai-functions with AWS Bedrock as the model provider.
-"""
-from __future__ import annotations
-
 from typing import Literal
+
+from pydantic import BaseModel
 
 from ai_functions import ai_function
 from ai_functions.types import PostConditionResult
-from pydantic import BaseModel
 from strands.models.bedrock import BedrockModel
 
-_MODEL = BedrockModel(model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0")
+# ---------------------------------------------------------------------------
+# Serverless model configuration  (NFR-02.3 / NFR-02.4)
+# Cross-region inference profile — the "us." prefix is required.
+# ---------------------------------------------------------------------------
 
+_MODEL = BedrockModel(model_id="us.anthropic.claude-3-haiku-20240307-v1:0")
 
-# ── Schemas ──────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Types
+# ---------------------------------------------------------------------------
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
 class LogAnalysis(BaseModel):
-    log_level: LogLevel
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     summary: str
     suggestion: str
     category: str
@@ -37,96 +37,117 @@ class IncidentReport(BaseModel):
     related_log_lines: list[int]
 
 
-# ── Step 1: Classify severity ───────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Post-condition helpers
+# ---------------------------------------------------------------------------
+
+def check_summary_length(summary: str):
+    """Post-condition: summary must be at most 30 words."""
+    word_count = len(summary.split())
+    assert word_count <= 30, f"Summary has {word_count} words, max is 30"
+
+
+def check_incident_has_actions(report: IncidentReport):
+    """Post-condition: incident report must have at least one recommended action."""
+    assert (
+        report.recommended_actions and len(report.recommended_actions) >= 1
+    ), "Incident report has no recommended actions"
+
+
+# ---------------------------------------------------------------------------
+# AI functions  (FR-02)
+# ---------------------------------------------------------------------------
 
 @ai_function(model=_MODEL)
 def classify_severity(log_entry: str) -> LogLevel:
-    """
-    Classify the severity level of this log entry.
-    Return exactly one of: DEBUG, INFO, WARNING, ERROR, CRITICAL.
+    """Classify the severity level of this log entry.
 
-    Log entry:
-    {log_entry}
-    """
+    Log entry: {log_entry}
 
+    Analyze the log message and determine its severity level.
+    Consider error indicators, warning signs, and the overall tone of the message."""
 
-# ── Step 2: Categorize ──────────────────────────────────────────────
 
 @ai_function(model=_MODEL)
 def categorize_log(log_entry: str) -> str:
-    """
-    Classify this log entry into exactly one category.
-    Return only the category name, nothing else.
+    """Categorize this log entry into exactly one category.
 
-    Categories: authentication, networking, database, filesystem,
+    Log entry: {log_entry}
+
+    Available categories: authentication, networking, database, filesystem,
     performance, security, configuration, application, deployment
 
-    Log entry:
-    {log_entry}
-    """
-
-
-# ── Step 3: Summarize (with post-condition) ─────────────────────────
-
-def check_summary_length(result: str) -> None:
-    word_count = len(result.split())
-    assert word_count <= 30, f"Summary has {word_count} words, must be 30 or fewer."
+    Return ONLY the category name, nothing else."""
 
 
 @ai_function(model=_MODEL, post_conditions=[check_summary_length], max_attempts=3)
 def summarize_log(log_entry: str, severity: str, category: str) -> str:
-    """
-    Write a one-sentence summary (max 30 words) for this {severity} {category} log.
-    Return only the summary sentence.
+    """Summarize this log entry in a single sentence of at most 30 words.
 
-    Log entry:
-    {log_entry}
-    """
+    Log entry: {log_entry}
+    Severity: {severity}
+    Category: {category}
 
+    Provide a concise, informative summary. Maximum 30 words. Do NOT exceed 30 words."""
 
-# ── Step 4: Suggest fix ─────────────────────────────────────────────
 
 @ai_function(model=_MODEL)
 def suggest_fix(log_entry: str, severity: str, category: str, summary: str) -> str:
-    """
-    This is a {severity} log in the {category} category.
+    """Suggest an actionable fix for this log entry.
+
+    Log entry: {log_entry}
+    Severity: {severity}
+    Category: {category}
     Summary: {summary}
 
-    Provide ONE short, specific, actionable suggestion to fix or mitigate
-    this issue. Be concrete (e.g. mention specific config, commands, or code).
+    Provide a specific, actionable suggestion to resolve or prevent this issue.
+    Mention concrete steps, tools, or configurations an engineer should use."""
 
-    Log entry:
-    {log_entry}
-    """
-
-
-# ── Step 5: AI post-condition — validate suggestion quality ─────────
 
 @ai_function(model=_MODEL)
 def validate_suggestion_quality(result: LogAnalysis) -> PostConditionResult:
-    """
-    Evaluate if the suggestion below is actionable and specific enough.
-    A good suggestion mentions concrete steps (config changes, commands,
-    code fixes, or monitoring actions).
-    A bad suggestion is vague like "fix the error" or "check the logs".
+    """Evaluate whether this fix suggestion is actionable and specific.
 
+    Log level: {result.log_level}
+    Summary: {result.summary}
     Suggestion: {result.suggestion}
     Category: {result.category}
-    Summary: {result.summary}
-    """
+
+    Determine if the suggestion is specific enough to be actionable by an engineer.
+    A good suggestion should mention specific steps, tools, or configurations."""
 
 
-# ── Pipeline ─────────────────────────────────────────────────────────
+@ai_function(model=_MODEL, post_conditions=[check_incident_has_actions], max_attempts=3)
+def correlate_logs(log_analyses: list[dict]) -> IncidentReport:
+    """Correlate these problem logs into a single incident report.
+
+    Problem logs:
+    {log_analyses}
+
+    Analyze all the logs together to:
+    1. Identify a common title for the incident
+    2. Determine the most likely root cause
+    3. List all affected services
+    4. Assess the overall severity (low/medium/high/critical)
+    5. Suggest specific recommended actions to resolve the incident
+    6. List the related log line numbers
+
+    Every incident report MUST contain at least one recommended action."""
+
+
+# ---------------------------------------------------------------------------
+# Pipeline orchestration  (design doc section 2.2)
+# ---------------------------------------------------------------------------
 
 def analyze_log(log_entry: str) -> LogAnalysis:
-    """Full AI pipeline: classify -> categorize -> summarize -> suggest -> validate."""
+    """Run the full AI analysis pipeline on a single log entry."""
+
     severity = classify_severity(log_entry)
     category = categorize_log(log_entry)
     summary = summarize_log(log_entry, severity, category)
 
     if severity in ("WARNING", "ERROR", "CRITICAL"):
         suggestion = suggest_fix(log_entry, severity, category, summary)
-
         result = LogAnalysis(
             log_level=severity,
             summary=summary,
@@ -139,45 +160,21 @@ def analyze_log(log_entry: str) -> LogAnalysis:
             if validation.passed:
                 break
             suggestion = suggest_fix(log_entry, severity, category, summary)
-            result = result.model_copy(update={"suggestion": suggestion})
+            result = LogAnalysis(
+                log_level=severity,
+                summary=summary,
+                suggestion=suggestion,
+                category=category,
+                confidence="high",
+            )
         else:
             result = result.model_copy(update={"confidence": "low"})
+        return result
     else:
-        result = LogAnalysis(
+        return LogAnalysis(
             log_level=severity,
             summary=summary,
             suggestion="N/A",
             category=category,
             confidence="high",
         )
-    return result
-
-
-# ── Correlation ──────────────────────────────────────────────────────
-
-def check_incident_has_actions(result: IncidentReport) -> None:
-    assert len(result.recommended_actions) >= 1, (
-        "Incident report must have at least one recommended action."
-    )
-
-
-@ai_function(model=_MODEL, post_conditions=[check_incident_has_actions], max_attempts=3)
-def correlate_logs(log_analyses: list[dict]) -> IncidentReport:
-    """
-    Analyze these related log entries and determine if they represent
-    a single incident or correlated failure.
-
-    For each log you have: line number, raw log, severity, category,
-    summary, and suggestion.
-
-    Identify:
-    - A short incident title
-    - The root cause connecting these logs
-    - Which services are affected
-    - Overall severity (low, medium, high, critical)
-    - Concrete recommended actions to resolve the incident
-    - Which log line numbers are related to this incident
-
-    Log analyses:
-    {log_analyses}
-    """

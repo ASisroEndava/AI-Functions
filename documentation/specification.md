@@ -116,7 +116,7 @@
 |----|-------------|
 | NFR-02.1 | The system SHALL use Amazon Bedrock as the AI model provider via `ai_functions`. |
 | NFR-02.2 | **Local mode** SHALL use the library's default model (configurable via `@ai_function(model=...)`). |
-| NFR-02.3 | **Serverless mode** SHALL explicitly configure `BedrockModel(model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0")` (cross-region inference profile). |
+| NFR-02.3 | **Serverless mode** SHALL explicitly configure `BedrockModel(model_id="us.anthropic.claude-3-haiku-20240307-v1:0")` (cross-region inference profile). |
 | NFR-02.4 | The model configuration SHALL be centralized in a single `_MODEL` constant in `analyzer.py`, shared by all AI functions. |
 
 ### NFR-03: Security

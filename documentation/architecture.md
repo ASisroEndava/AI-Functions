@@ -54,8 +54,8 @@ Both modes share the same AI analysis pipeline built on `ai_functions` with Amaz
 └────────────────────┘     └──────────────────┘     └───────┬───────┘
                                                             │
 ┌────────────────────┐     ┌──────────────────┐             │
-│  S3 Static Site    │     │  API Lambda      │◄────────────┘
-│  (dashboard HTML)  │◄───►│  (api_handler.py)│
+│  CloudFront CDN    │     │  API Lambda      │◄────────────┘
+│  (S3 private)      │◄───►│  (api_handler.py)│
 └────────────────────┘     └──────┬───────────┘
                                   │
                            ┌──────┴───────────┐
@@ -79,7 +79,7 @@ Both modes share the same AI analysis pipeline built on `ai_functions` with Amaz
 | `log-analyzer-api` | Lambda (Python 3.12) | REST API handler for dashboard queries |
 | `log-analyzer-test-generator` | Lambda (Python 3.12) | Generates sample logs for testing |
 | `LogAnalyzerGateway` | API Gateway (REST) | Exposes API Lambda as HTTP endpoints |
-| `DashboardSiteBucket` | S3 (static website) | Hosts the dashboard HTML |
+| `DashboardSiteBucket` | S3 (private) + CloudFront | Hosts the dashboard HTML via CloudFront OAC (HTTPS) |
 | `AiFuncsDepsLayer` | Lambda Layer | Shared dependencies: ai_functions, pydantic |
 | Subscription Filters | CloudWatch Logs | Routes log events to the processor Lambda |
 
@@ -169,7 +169,7 @@ The core analysis pipeline chains 5 AI function calls sequentially per log entry
 4. Runtime noise (START/END/REPORT) is filtered out
 5. Each valid message passes through the AI pipeline (Bedrock via ai_functions)
 6. Results are written to DynamoDB `log-analyzer-logs`
-7. Dashboard (S3) calls API Gateway → API Lambda → DynamoDB to display results
+7. Dashboard (CloudFront → S3) calls API Gateway → API Lambda → DynamoDB to display results
 
 ### 4.4 Serverless Mode — On-Demand Analysis
 
@@ -191,7 +191,7 @@ LogAnalyzerStack
 ├── _processor_lambda()         → CloudWatch processor function
 ├── _api_lambda()               → REST API function
 ├── _rest_api()                 → API Gateway with 5 endpoint resources
-├── _dashboard()                → S3 bucket + BucketDeployment
+├── _dashboard()                → S3 private bucket + CloudFront CDN + BucketDeployment
 ├── _cw_subscriptions()         → Optional external log group subscriptions
 └── _test_generator_lambda()    → Test log generator + subscription to processor
 ```
@@ -215,7 +215,7 @@ Step 5: Print output URLs
 ```
 ┌─ Internet ───────────────────────────────────────────────┐
 │                                                          │
-│  Browser ──► S3 Website (dashboard HTML)                 │
+│  Browser ──► CloudFront ──► S3 (dashboard HTML)          │
 │  Browser ──► API Gateway ──► API Lambda ──► DynamoDB     │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
@@ -247,10 +247,10 @@ Step 5: Print output URLs
 |-------|-----------|-----------------|
 | **Language** | Python 3.12+ | Python 3.12 (Lambda runtime) |
 | **AI Framework** | ai_functions | ai_functions (Lambda Layer) |
-| **AI Provider** | Amazon Bedrock (default model) | Amazon Bedrock (Claude 3.5 Haiku, cross-region profile) |
+| **AI Provider** | Amazon Bedrock (default model) | Amazon Bedrock (Claude 3 Haiku, cross-region profile) |
 | **Web Framework** | FastAPI + Uvicorn | API Gateway + Lambda handler |
 | **Storage** | SQLite (`logs.db`) | DynamoDB (2 tables, on-demand) |
-| **Frontend** | Inline HTML served by FastAPI | Static HTML on S3 |
+| **Frontend** | Inline HTML served by FastAPI | Static HTML on S3 via CloudFront (HTTPS) |
 | **IaC** | N/A | AWS CDK (Python) |
 | **Package Manager** | uv | uv (compile) + pip (layer install) |
 | **Deployment** | `uv run` | `deploy.ps1` (PowerShell) |

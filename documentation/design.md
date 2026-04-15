@@ -136,7 +136,7 @@ Each function uses the `@ai_function` decorator which:
 ```python
 from ai_functions.models.bedrock import BedrockModel
 
-_MODEL = BedrockModel(model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0")
+_MODEL = BedrockModel(model_id="us.anthropic.claude-3-haiku-20240307-v1:0")
 
 @ai_function(model=_MODEL)
 def classify_severity(...): ...
@@ -318,7 +318,7 @@ This prevents the Lambda from analyzing its own runtime messages or processing l
 | Aspect | Local (`dashboard.html`) | Serverless (`dashboard/index.html`) |
 |--------|-------------------------|-------------------------------------|
 | API base URL | Empty string (same origin) | User-configurable, saved to localStorage |
-| Served by | FastAPI `/` endpoint | S3 static website |
+| Served by | FastAPI `/` endpoint | S3 (private) via CloudFront CDN |
 | Import button | Yes (imports `analysis_results.json`) | No |
 | Source filter | Yes | No |
 | Search input | Yes (text search) | No |
@@ -327,7 +327,11 @@ This prevents the Lambda from analyzing its own runtime messages or processing l
 - Dark theme with CSS custom properties
 - Stat cards: total, critical, error, warning, info, debug (color-coded)
 - Filterable log table with expandable raw log column
-- Incident reports section with severity badges
+- Sequential ID column (`#`) showing a DynamoDB auto-increment number unique per log entry
+- Filter by `#` textbox: accepts comma-separated seq numbers to filter specific logs (e.g. from incident related lines)
+- Client-side pagination with page-size dropdown (10 / 25 / 50 / 100 for logs; 5 / 10 / 25 for incidents)
+- Pagination controls: first / prev / next / last buttons with page info display
+- Incident reports section with severity badges and clickable related line numbers that auto-populate the seq filter
 - Toast notifications for async operations
 - Responsive layout via CSS grid and flexbox
 
@@ -398,11 +402,13 @@ def __init__(self, scope, cid, **kwargs):
 - Lambda proxy integration
 - 5 resource paths under `/api`: logs, stats, correlate, incidents, analyze
 
-**S3 Dashboard:**
-- Public read access (block_public_access all disabled)
-- Static website hosting with index.html
+**S3 Dashboard + CloudFront:**
+- S3 bucket with `BlockPublicAccess.BLOCK_ALL` (fully private)
+- CloudFront distribution with Origin Access Control (OAC) — only CloudFront can read from the bucket
+- HTTPS enforced (`ViewerProtocolPolicy.REDIRECT_TO_HTTPS`)
+- Error responses (403/404) redirect to `/index.html`
 - Auto-delete objects on stack destroy
-- Assets deployed via BucketDeployment
+- Assets deployed via BucketDeployment with CloudFront cache invalidation (`/*`)
 
 ---
 
@@ -539,15 +545,29 @@ For demo/investigation, `AdministratorAccess` is recommended.
 
 #### 4.4.7 Amazon Bedrock Model Access
 
-Before deploying, the model must be enabled in the Bedrock console:
+The analyzer model is currently **`us.anthropic.claude-3-haiku-20240307-v1:0`** (Claude 3 Haiku).
 
-1. Open Amazon Bedrock Console → **Model access**
-2. Enable **Anthropic → Claude 3.5 Haiku**
-3. Wait for status **Access granted**
+**Model history and lessons learned:**
 
-Without this, Lambda invocations fail with `AccessDeniedException`.
+- **Claude 3.5 Haiku** — Original model. Marked `LEGACY` in some regions (e.g. us-east-2). If the account hasn't invoked it in 30 days, Bedrock blocks access with `ResourceNotFoundException`.
+- **Claude Haiku 4.5** — Attempted replacement. Requires AWS Marketplace subscription (`aws-marketplace:ViewSubscriptions`, `aws-marketplace:Subscribe`). Organization SCPs may block these actions, causing `AccessDeniedException`.
+- **Amazon Nova Micro** — Tested as fallback. First-party, no marketplace needed. Works but lower quality analysis.
+- **Claude Sonnet 4** — High-quality analysis, accessible without marketplace issues, but higher cost.
+- **Claude 3 Haiku** (✅ current) — Fast, low-cost, good quality for structured classification/extraction tasks.
 
-#### 4.4.8 CDK Cached Credentials vs AWS CLI
+To change the model, edit `_MODEL` in `lambda_code/analyzer.py`.
+
+#### 4.4.8 Cross-Region Deployment
+
+The stack can be deployed to any AWS region. Requirements:
+
+1. **CDK Bootstrap** the target region: `npx cdk bootstrap aws://<ACCOUNT>/<REGION>`
+2. **Set region** before deploy: `$env:AWS_DEFAULT_REGION = "<REGION>"`
+3. **Verify Bedrock model** is available in target region (Amazon Nova Micro is available in all US commercial regions via the `us.` cross-region inference prefix)
+
+Current deployment: **us-east-1** (N. Virginia).
+
+#### 4.4.9 CDK Cached Credentials vs AWS CLI
 
 After renewing SSO credentials, `aws sts get-caller-identity` may succeed while `npx cdk destroy` (or `deploy`) still fails with `ExpiredToken`. This happens because CDK caches credentials separately from the AWS CLI.
 
@@ -570,11 +590,12 @@ Remove-Item -Recurse -Force "$env:USERPROFILE\.cdk" -ErrorAction SilentlyContinu
 | **Runtime noise filter in processor** | Prevents recursive processing of the Lambda's own START/END/REPORT messages, which would waste AI calls and cause log storms. |
 | **Separate analyzer.py per mode** | Local mode uses library defaults; serverless mode needs explicit model config. Avoids conditional logic in a shared file. |
 | **DynamoDB JSON strings for list fields** | Simpler than DynamoDB native List/Map types; consistent with SQLite JSON serialization approach. |
-| **S3 public website (no CloudFront)** | Acceptable for demo/investigation scope. Production would add CloudFront + HTTPS. |
+| **DynamoDB atomic counter for seq IDs** | Uses a special `_seq_counter` item with atomic `ADD` to generate unique sequential numbers. Survives clear-all operations. |
+| **S3 private bucket + CloudFront** | Bucket uses `BlockPublicAccess.BLOCK_ALL`; content served exclusively via CloudFront with OAC and HTTPS. |
 | **Single CDK stack** | All resources in one stack for simple deploy/destroy. Production might split into nested stacks. |
 | **PAY_PER_REQUEST billing** | No upfront capacity planning for demo workloads. Scales to zero cost when idle. |
 | **Cross-region inference profile (`us.` prefix)** | Required by Bedrock for on-demand invocation of newer models. Direct model IDs return `ValidationException`. |
-| **Claude 3.5 Haiku for serverless** | Faster and cheaper than Sonnet for structured classification/extraction tasks. Marketplace permissions not required (unlike Claude Sonnet 4 which needs `aws-marketplace:Subscribe`). |
+| **Claude 3 Haiku for serverless** | Fast and low-cost for structured classification/extraction tasks. Cross-region inference via `us.` prefix. |
 
 ---
 

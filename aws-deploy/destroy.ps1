@@ -1,58 +1,36 @@
 <#
 .SYNOPSIS
-    Tear down all Log Analyzer AWS infrastructure.
-.DESCRIPTION
-    Runs cdk destroy to remove the entire CloudFormation stack,
-    including DynamoDB tables, Lambda functions, API Gateway, and S3 bucket.
+    Tears down the Log Analyzer serverless stack and cleans up local artifacts.
 #>
 
 $ErrorActionPreference = "Stop"
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $ScriptDir
 
-if (-not $env:AWS_PROFILE) {
-    $env:AWS_PROFILE = "AdministratorAccess-419466290453"
+$env:AWS_PROFILE = "419466290453_AdministratorAccess"
+$env:AWS_PAGER = ""
+$env:JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION = "1"
+
+Write-Host "`n========================================" -ForegroundColor Red
+Write-Host "  Log Analyzer — CDK Destroy" -ForegroundColor Red
+Write-Host "========================================`n" -ForegroundColor Red
+
+# Activate venv if present
+if (Test-Path ".venv\Scripts\activate.ps1") {
+    & .venv\Scripts\activate.ps1
 }
 
-Write-Host "`n=== Log Analyzer AWS Destroy ===" -ForegroundColor Red
+# Destroy the stack
+Write-Host "Destroying CDK stack..." -ForegroundColor Yellow
+npx cdk destroy --force
 
-$destroyed = $false
-
-if (Test-Path ".venv") {
-    $VenvScripts = Join-Path (Join-Path $ScriptDir ".venv") "Scripts"
-    $env:PATH = "$VenvScripts;$env:PATH"
-    $env:VIRTUAL_ENV = Join-Path $ScriptDir ".venv"
-
-    Write-Host "Destroying LogAnalyzerStack via CDK..." -ForegroundColor Yellow
-    npx cdk destroy --force
-
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "`nStack destroyed successfully." -ForegroundColor Green
-        $destroyed = $true
-    } else {
-        Write-Host "CDK destroy failed — falling back to AWS CLI..." -ForegroundColor Yellow
+# Clean up local build artifacts
+Write-Host "Cleaning up local artifacts..." -ForegroundColor Yellow
+$artifacts = @("cdk-outputs.json", "lambda_layer", "cdk.out")
+foreach ($item in $artifacts) {
+    if (Test-Path $item) {
+        Remove-Item -Recurse -Force $item
+        Write-Host "  Removed: $item" -ForegroundColor DarkGray
     }
 }
 
-if (-not $destroyed) {
-    Write-Host "Destroying LogAnalyzerStack via AWS CLI..." -ForegroundColor Yellow
-    aws cloudformation delete-stack --stack-name LogAnalyzerStack
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "`nFailed to delete stack — check CloudFormation console." -ForegroundColor Red
-        exit 1
-    }
-    Write-Host "Waiting for stack deletion to complete..." -ForegroundColor Gray
-    aws cloudformation wait stack-delete-complete --stack-name LogAnalyzerStack
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "`nStack destroyed successfully." -ForegroundColor Green
-    } else {
-        Write-Host "`nStack deletion timed out or failed — check CloudFormation console." -ForegroundColor Red
-    }
-}
-
-# Clean up local artifacts
-if (Test-Path "cdk-outputs.json") { Remove-Item "cdk-outputs.json" }
-if (Test-Path "lambda_layer") { Remove-Item -Recurse -Force "lambda_layer" }
-if (Test-Path "cdk.out") { Remove-Item -Recurse -Force "cdk.out" }
-
-Write-Host "Local build artifacts cleaned up.`n" -ForegroundColor Gray
+Write-Host "`nStack destroyed and artifacts cleaned up." -ForegroundColor Green
+Write-Host ""

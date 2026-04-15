@@ -1,113 +1,97 @@
 <#
 .SYNOPSIS
-    One-click deploy of the Log Analyzer infrastructure to AWS.
-.DESCRIPTION
-    1. Creates a Python venv and installs CDK dependencies
-    2. Builds Lambda Layer (pip install for Linux/x86_64)
-    3. Bootstraps CDK (first-time only)
-    4. Deploys the full stack
-    5. Prints the API Gateway URL and Dashboard URL
+    One-click deployment script for the Log Analyzer serverless stack.
 .PARAMETER LogGroups
-    Optional JSON array of CloudWatch Log Group names to subscribe.
-    Example: -LogGroups '["/aws/lambda/my-fn","/ecs/my-svc"]'
+    Optional JSON array of CloudWatch log group names to subscribe to the processor.
+    Example: -LogGroups '["/aws/lambda/my-fn","/ecs/my-service"]'
 #>
 param(
     [string]$LogGroups = ""
 )
 
 $ErrorActionPreference = "Stop"
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $ScriptDir
 
-if (-not $env:AWS_PROFILE) {
-    $env:AWS_PROFILE = "AdministratorAccess-419466290453"
-}
+$env:AWS_PROFILE = "419466290453_AdministratorAccess"
+$env:AWS_PAGER = ""
 
-$PipExe = Join-Path (Join-Path (Join-Path $ScriptDir ".venv") "Scripts") "pip.exe"
-$PythonExe = Join-Path (Join-Path (Join-Path $ScriptDir ".venv") "Scripts") "python.exe"
-$LayerDir = Join-Path (Join-Path $ScriptDir "lambda_layer") "python"
-$LayerReqs = Join-Path (Join-Path $ScriptDir "lambda_code") "requirements.txt"
+Write-Host "`n========================================" -ForegroundColor Cyan
+Write-Host "  Log Analyzer — CDK Deploy" -ForegroundColor Cyan
+Write-Host "========================================`n" -ForegroundColor Cyan
 
-Write-Host "`n=== Log Analyzer AWS Deploy ===" -ForegroundColor Cyan
+# --- Step 1: Python virtual environment ---
+Write-Host "[1/5] Setting up Python virtual environment..." -ForegroundColor Yellow
 
-# ── Step 1: Python venv for CDK ─────────────────────────────────────
-Write-Host "`n[1/5] Setting up CDK virtual environment..." -ForegroundColor Yellow
-if (-not (Test-Path $PipExe)) {
-    if (Test-Path (Join-Path $ScriptDir ".venv")) {
-        Write-Host "   Removing broken .venv (no pip)..." -ForegroundColor Gray
-        Remove-Item -Recurse -Force (Join-Path $ScriptDir ".venv")
+if (Test-Path ".venv") {
+    if (-not (Test-Path ".venv\Scripts\pip.exe")) {
+        Write-Host "  Broken venv detected — removing and recreating..." -ForegroundColor DarkYellow
+        Remove-Item -Recurse -Force ".venv"
     }
-    Write-Host "   Creating .venv..." -ForegroundColor Gray
+}
+if (-not (Test-Path ".venv")) {
     py -m venv .venv
-    if (-not (Test-Path $PipExe)) {
-        Write-Host "   ERROR: venv created but pip.exe not found. Ensure Python includes pip." -ForegroundColor Red
-        exit 1
-    }
 }
-Write-Host "   Installing CDK Python packages..." -ForegroundColor Gray
-& $PipExe install -q -r requirements.txt
-Write-Host "   Done." -ForegroundColor Green
+& .venv\Scripts\activate.ps1
 
-# ── Step 2: Build Lambda Layer ───────────────────────────────────────
-Write-Host "`n[2/5] Building Lambda Layer (Linux x86_64 packages)..." -ForegroundColor Yellow
-$layerRoot = Join-Path $ScriptDir "lambda_layer"
-if (Test-Path $layerRoot) {
-    Remove-Item -Recurse -Force $layerRoot
+# --- Step 2: Install CDK Python dependencies ---
+Write-Host "[2/5] Installing CDK dependencies..." -ForegroundColor Yellow
+pip install -q -r requirements.txt
+
+# --- Step 3: Build Lambda Layer ---
+Write-Host "[3/5] Building Lambda Layer..." -ForegroundColor Yellow
+
+$layerTarget = "lambda_layer\python"
+if (Test-Path "lambda_layer") {
+    Remove-Item -Recurse -Force "lambda_layer"
 }
-New-Item -ItemType Directory -Path $LayerDir -Force | Out-Null
+New-Item -ItemType Directory -Path $layerTarget -Force | Out-Null
 
-Write-Host "   Resolving dependencies with uv..." -ForegroundColor Gray
-$LockFile = Join-Path (Join-Path $ScriptDir "lambda_code") "requirements.lock"
-uv pip compile $LayerReqs --python-platform manylinux2014_x86_64 --python-version 3.12 -o $LockFile --quiet
-Write-Host "   Installing locked packages for Linux/x86_64..." -ForegroundColor Gray
-& $PipExe install `
-    -r $LockFile `
-    --target $LayerDir `
+$lambdaReqs = "lambda_code\requirements.txt"
+$lockFile = "lambda_code\requirements.lock"
+
+Write-Host "  Resolving dependencies for manylinux2014_x86_64 / Python 3.12..."
+uv pip compile $lambdaReqs `
+    --python-platform manylinux2014_x86_64 `
+    --python-version 3.12 `
+    -o $lockFile
+
+Write-Host "  Installing binary wheels into layer directory..."
+pip install `
+    -r $lockFile `
+    --target $layerTarget `
     --platform manylinux2014_x86_64 `
     --implementation cp `
     --python-version 3.12 `
-    --only-binary=:all: `
+    --only-binary :all: `
     --no-deps
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "   ERROR: pip install failed (exit $LASTEXITCODE)" -ForegroundColor Red
-    exit 1
-}
-Write-Host "   Layer built at: $LayerDir" -ForegroundColor Green
 
-# ── Activate venv for CDK ─────────────────────────────────────────────
-$VenvScripts = Join-Path (Join-Path $ScriptDir ".venv") "Scripts"
-$env:PATH = "$VenvScripts;$env:PATH"
-$env:VIRTUAL_ENV = Join-Path $ScriptDir ".venv"
-
-# ── Step 3: CDK Bootstrap ────────────────────────────────────────────
-Write-Host "`n[3/5] Bootstrapping CDK (if needed)..." -ForegroundColor Yellow
-$ErrorActionPreference = "Continue"
+# --- Step 4: CDK Bootstrap ---
+Write-Host "[4/5] Running CDK bootstrap (idempotent)..." -ForegroundColor Yellow
 npx cdk bootstrap
-$ErrorActionPreference = "Stop"
-Write-Host "   Bootstrap step complete." -ForegroundColor Green
 
-# ── Step 4: CDK Deploy ───────────────────────────────────────────────
-Write-Host "`n[4/5] Deploying stack..." -ForegroundColor Yellow
+# --- Step 5: CDK Deploy ---
+Write-Host "[5/5] Deploying stack..." -ForegroundColor Yellow
+
 $cdkArgs = @("cdk", "deploy", "--require-approval", "never", "--outputs-file", "cdk-outputs.json")
 if ($LogGroups) {
     $cdkArgs += @("-c", "log_group_names=$LogGroups")
 }
 npx @cdkArgs
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "`nDeploy FAILED. Check the errors above." -ForegroundColor Red
-    exit 1
-}
 
-# ── Step 5: Print outputs ────────────────────────────────────────────
-Write-Host "`n[5/5] Deployment complete!" -ForegroundColor Green
+# --- Print outputs ---
+Write-Host "`n========================================" -ForegroundColor Green
+Write-Host "  Deployment Complete!" -ForegroundColor Green
+Write-Host "========================================`n" -ForegroundColor Green
+
 if (Test-Path "cdk-outputs.json") {
     $outputs = Get-Content "cdk-outputs.json" | ConvertFrom-Json
-    $stack = $outputs."LogAnalyzerStack"
-    Write-Host "`n  API Gateway URL     : $($stack.ApiGatewayUrl)" -ForegroundColor Cyan
-    Write-Host "  Dashboard URL       : $($stack.DashboardSiteUrl)" -ForegroundColor Cyan
-    Write-Host "  Processor Lambda    : $($stack.ProcessorLambdaName)" -ForegroundColor Gray
-    Write-Host "  API Lambda          : $($stack.ApiLambdaName)" -ForegroundColor Gray
-    Write-Host "  Test Generator      : $($stack.TestGeneratorLambdaName)" -ForegroundColor Gray
-    Write-Host "`n  Paste the API Gateway URL into the dashboard's API field." -ForegroundColor Yellow
-    Write-Host "  Generate test logs:  aws lambda invoke --function-name $($stack.TestGeneratorLambdaName) --payload '{""count"":10}' out.json`n" -ForegroundColor Yellow
+    $stackOutputs = $outputs.LogAnalyzerStack
+    if ($stackOutputs) {
+        Write-Host "  API Gateway URL : $($stackOutputs.ApiGatewayUrl)" -ForegroundColor White
+        Write-Host "  Dashboard URL   : $($stackOutputs.DashboardSiteUrl)" -ForegroundColor White
+        Write-Host "  Processor Lambda: $($stackOutputs.ProcessorFnName)" -ForegroundColor White
+        Write-Host "  API Lambda      : $($stackOutputs.ApiFnName)" -ForegroundColor White
+        Write-Host "  Test Generator  : $($stackOutputs.TestGenFnName)" -ForegroundColor White
+    }
 }
+
+Write-Host ""

@@ -1,87 +1,80 @@
-"""Lambda handler: receives CloudWatch Logs subscription events,
-runs each log message through the AI analysis pipeline, and
-stores results in DynamoDB.
-
-CloudWatch sends events as base64-encoded gzipped JSON payloads.
-"""
-from __future__ import annotations
-
 import base64
 import gzip
 import json
 import logging
 import re
+import traceback
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-_RUNTIME_NOISE = re.compile(
+NOISE_RE = re.compile(
     r"^(START |END |REPORT |INIT_START |EXTENSION |\[INFO\]\t.*\tProcessing )"
 )
 
-def _is_noise(msg: str) -> bool:
-    """Return True for Lambda runtime / internal messages."""
-    return bool(_RUNTIME_NOISE.match(msg))
 
+def handler(event, context):
+    raw_data = event["awslogs"]["data"]
+    decoded = gzip.decompress(base64.b64decode(raw_data))
+    payload = json.loads(decoded)
 
-def handler(event: dict, context) -> dict:
+    log_group = payload.get("logGroup", "unknown")
+    log_stream = payload.get("logStream", "unknown")
+    log_events = payload.get("logEvents", [])
+
+    logger.info(
+        "Received %d events from %s / %s", len(log_events), log_group, log_stream
+    )
+
     from analyzer import analyze_log
     from dynamo_storage import put_log
 
-    payload = event.get("awslogs", {}).get("data", "")
-    if not payload:
-        logger.warning("No awslogs.data in event — skipping")
-        return {"statusCode": 200, "body": "no data"}
-
-    raw_bytes = base64.b64decode(payload)
-    decompressed = gzip.decompress(raw_bytes)
-    log_data = json.loads(decompressed)
-
-    log_group = log_data.get("logGroup", "unknown")
-    log_stream = log_data.get("logStream", "unknown")
-    log_events = log_data.get("logEvents", [])
-
-    logger.info(
-        "Processing %d events from %s / %s",
-        len(log_events), log_group, log_stream,
-    )
-
     processed = 0
     errors = 0
+    last_error = ""
 
-    for idx, log_event in enumerate(log_events):
-        raw_message = log_event.get("message", "").strip()
-        if not raw_message or _is_noise(raw_message):
+    for idx, evt in enumerate(log_events, start=1):
+        message = evt.get("message", "").strip()
+        if not message:
+            continue
+        if NOISE_RE.match(message):
             continue
 
         try:
-            analysis = analyze_log(raw_message)
+            analysis = analyze_log(message)
             entry = {
-                "line": idx + 1,
-                "timestamp": str(log_event.get("timestamp", "")),
-                "source": f"{log_group}/{log_stream}",
-                "raw": raw_message,
-                **analysis.model_dump(),
+                "line": idx,
+                "timestamp": evt.get("timestamp", ""),
+                "source": log_group,
+                "raw": message,
+                "log_level": analysis.log_level,
+                "summary": analysis.summary,
+                "suggestion": analysis.suggestion,
+                "category": analysis.category,
+                "confidence": analysis.confidence,
             }
             put_log(entry)
             processed += 1
-            logger.info("Analyzed event %d: %s", idx + 1, analysis.log_level)
+            logger.info(
+                "Analyzed event: level=%s category=%s summary=%s",
+                analysis.log_level,
+                analysis.category,
+                analysis.summary[:80],
+            )
         except Exception as exc:
-            import traceback
-            tb = traceback.format_exc()
-            logger.error("Failed to analyze event %d: %s\n%s", idx + 1, exc, tb)
             errors += 1
             last_error = str(exc)
+            logger.error("Failed to process event: %s\n%s", exc, traceback.format_exc())
 
     summary = {
-        "statusCode": 200,
-        "body": json.dumps({
-            "log_group": log_group,
-            "total_events": len(log_events),
-            "processed": processed,
-            "errors": errors,
-            "last_error": last_error if errors else None,
-        }),
+        "processed": processed,
+        "errors": errors,
+        "total_events": len(log_events),
+        "log_group": log_group,
+        "log_stream": log_stream,
     }
-    logger.info("Done: %s", summary["body"])
+    if last_error:
+        summary["last_error"] = last_error
+
+    logger.info("Processing complete: %s", json.dumps(summary))
     return summary
