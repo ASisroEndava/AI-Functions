@@ -1,0 +1,35 @@
+﻿{
+    "events": [
+        {
+            "timestamp": 1775586838734,
+            "message": "INIT_START Runtime Version: python:3.12.mainlinev2.v6\tRuntime Version ARN: arn:aws:lambda:us-east-2::runtime:dbfa6aec8278470c1512458be8c7a99b2d63682d2e2d1e8d276dbf05b7f99755\n",
+            "ingestionTime": 1775586841195
+        },
+        {
+            "timestamp": 1775586838828,
+            "message": "START RequestId: 40efb404-e961-4c35-81df-2062fd1735e8 Version: $LATEST\n",
+            "ingestionTime": 1775586841195
+        },
+        {
+            "timestamp": 1775586838829,
+            "message": "[INFO]\t2026-04-07T18:33:58.828Z\t40efb404-e961-4c35-81df-2062fd1735e8\tReceived 6 events from /aws/lambda/log-analyzer-test-generator / 2026/04/07/log-analyzer-test-generator[$LATEST]d20c8a44fc7044bbab8ab29aa561b788\n",
+            "ingestionTime": 1775586841195
+        },
+        {
+            "timestamp": 1775586847259,
+            "message": "[INFO]\t2026-04-07T18:34:07.259Z\t40efb404-e961-4c35-81df-2062fd1735e8\tFound credentials in environment variables.\n",
+            "ingestionTime": 1775586856281
+        },
+        {
+            "timestamp": 1775586847738,
+            "message": "[INFO]\t2026-04-07T18:34:07.738Z\t40efb404-e961-4c35-81df-2062fd1735e8\tFound credentials in environment variables.\n",
+            "ingestionTime": 1775586856281
+        },
+        {
+            "timestamp": 1775586848057,
+            "message": "[INFO]\t2026-04-07T18:34:08.057Z\t40efb404-e961-4c35-81df-2062fd1735e8\tCreating Strands MetricsClient\n",
+            "ingestionTime": 1775586856281
+        },
+        {
+            "timestamp": 1775586848297,
+            "message": 

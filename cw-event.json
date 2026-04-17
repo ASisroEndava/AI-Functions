@@ -1,0 +1,1 @@
+{"logGroupName":"/aws/lambda/log-analyzer-test-generator","logStreamName":"manual-test","logEvents":[{"timestamp":1774290532012,"message":"ERROR 2026-03-23 Connection refused to database primary-01 prueba de Ariel"}]}

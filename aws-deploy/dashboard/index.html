@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Log Analyzer Dashboard (Serverless)</title>
+<style>
+:root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242736;
+    --border: #2e3145;
+    --text: #e4e6f0;
+    --text-muted: #8b8fa3;
+    --critical: #ff4d6a;
+    --error: #ff6b6b;
+    --warning: #ffc145;
+    --info: #4dabf7;
+    --debug: #69db7c;
+    --accent: #7c5cfc;
+    --radius: 8px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+.container { max-width:1400px; margin:0 auto; padding:20px; }
+header { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
+header h1 { font-size:1.5rem; }
+.btn-group { display:flex; gap:8px; flex-wrap:wrap; }
+button { background:var(--accent); color:#fff; border:none; padding:8px 16px; border-radius:var(--radius); cursor:pointer; font-size:0.85rem; font-weight:600; transition:opacity .2s; }
+button:hover { opacity:0.85; }
+button.secondary { background:var(--surface2); border:1px solid var(--border); }
+button.danger { background:var(--critical); }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:24px; }
+.stat-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; text-align:center; }
+.stat-card .value { font-size:2rem; font-weight:700; }
+.stat-card .label { font-size:0.8rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin-top:4px; }
+.stat-card.critical .value { color:var(--critical); }
+.stat-card.error .value { color:var(--error); }
+.stat-card.warning .value { color:var(--warning); }
+.stat-card.info .value { color:var(--info); }
+.stat-card.debug .value { color:var(--debug); }
+.filters { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center; }
+.filters select { background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:var(--radius); padding:8px 12px; font-size:0.85rem; min-width:140px; }
+.table-wrap { overflow-x:auto; margin-bottom:24px; }
+table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+thead th { background:var(--surface2); text-align:left; padding:10px 12px; border-bottom:2px solid var(--border); position:sticky; top:0; }
+tbody td { padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
+tbody tr:hover { background:var(--surface); }
+.badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:0.75rem; font-weight:700; text-transform:uppercase; }
+.badge.CRITICAL, .badge.critical { background:var(--critical); color:#fff; }
+.badge.ERROR, .badge.high { background:var(--error); color:#fff; }
+.badge.WARNING, .badge.medium { background:var(--warning); color:#1a1d27; }
+.badge.INFO, .badge.low { background:var(--info); color:#1a1d27; }
+.badge.DEBUG { background:var(--debug); color:#1a1d27; }
+.raw-cell { max-width:300px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; color:var(--text-muted); }
+.raw-cell.expanded { white-space:normal; word-break:break-all; }
+.section-title { font-size:1.2rem; margin:24px 0 12px; }
+.incident { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:12px; }
+.incident h3 { margin-bottom:8px; }
+.incident .meta { font-size:0.85rem; color:var(--text-muted); margin-bottom:8px; }
+.incident ul { margin-left:20px; margin-top:6px; }
+.incident li { margin-bottom:4px; font-size:0.85rem; }
+.toast { position:fixed; bottom:20px; right:20px; background:var(--accent); color:#fff; padding:12px 20px; border-radius:var(--radius); font-size:0.85rem; opacity:0; transition:opacity .3s; pointer-events:none; z-index:999; }
+.toast.show { opacity:1; }
+.empty { text-align:center; padding:40px; color:var(--text-muted); }
+.pagination { display:flex; align-items:center; justify-content:space-between; margin-top:10px; flex-wrap:wrap; gap:8px; }
+.pagination .page-info { font-size:0.8rem; color:var(--text-muted); }
+.pagination .page-controls { display:flex; gap:6px; align-items:center; }
+.pagination button { padding:6px 12px; font-size:0.8rem; min-width:auto; }
+.pagination button:disabled { opacity:0.35; cursor:default; }
+.page-size-wrap { display:flex; align-items:center; gap:6px; }
+.page-size-wrap label { font-size:0.8rem; color:var(--text-muted); white-space:nowrap; }
+.page-size-wrap select { background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:var(--radius); padding:6px 8px; font-size:0.8rem; }
+.log-seq { color:var(--text-muted); font-family:monospace; font-size:0.8rem; text-align:right; min-width:36px; }
+.filter-seq { display:flex; align-items:center; gap:6px; }
+.filter-seq input { background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:var(--radius); padding:8px 12px; font-size:0.85rem; width:220px; }
+.filter-seq label { font-size:0.85rem; color:var(--text-muted); white-space:nowrap; }
+.clickable-lines { color:var(--accent); cursor:pointer; text-decoration:underline; }
+.clickable-lines:hover { opacity:0.8; }
+.api-url-bar { display:flex; gap:8px; margin-bottom:16px; align-items:center; }
+.api-url-bar input { flex:1; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:var(--radius); padding:8px 12px; font-size:0.85rem; }
+.api-url-bar label { font-size:0.85rem; color:var(--text-muted); white-space:nowrap; }
+</style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>Log Analyzer Dashboard <span style="font-size:0.7rem;color:var(--text-muted)">(Serverless)</span></h1>
+        <div class="btn-group">
+            <button onclick="refresh()">Refresh</button>
+            <button class="secondary" onclick="correlateIncidents()">Correlate Incidents</button>
+            <button class="secondary" onclick="document.getElementById('api-url-input').focus()">Set API URL</button>
+            <button class="danger" onclick="clearAll()">Clear All</button>
+        </div>
+    </header>
+
+    <div class="api-url-bar">
+        <label>API Gateway URL:</label>
+        <input type="text" id="api-url-input" placeholder="https://xxxxxxxx.execute-api.us-east-1.amazonaws.com/prod">
+        <button class="secondary" onclick="saveApiUrl()">Save</button>
+    </div>
+
+    <div class="stats" id="stats">
+        <div class="stat-card"><div class="value" id="stat-total">0</div><div class="label">Total</div></div>
+        <div class="stat-card critical"><div class="value" id="stat-critical">0</div><div class="label">Critical</div></div>
+        <div class="stat-card error"><div class="value" id="stat-error">0</div><div class="label">Error</div></div>
+        <div class="stat-card warning"><div class="value" id="stat-warning">0</div><div class="label">Warning</div></div>
+        <div class="stat-card info"><div class="value" id="stat-info">0</div><div class="label">Info</div></div>
+        <div class="stat-card debug"><div class="value" id="stat-debug">0</div><div class="label">Debug</div></div>
+    </div>
+
+    <div class="filters">
+        <select id="filter-level" onchange="refresh()">
+            <option value="">All Levels</option>
+            <option>CRITICAL</option><option>ERROR</option><option>WARNING</option><option>INFO</option><option>DEBUG</option>
+        </select>
+        <select id="filter-category" onchange="refresh()">
+            <option value="">All Categories</option>
+            <option>authentication</option><option>networking</option><option>database</option>
+            <option>filesystem</option><option>performance</option><option>security</option>
+            <option>configuration</option><option>application</option><option>deployment</option>
+        </select>
+        <div class="filter-seq">
+            <label>Filter by #:</label>
+            <input type="text" id="filter-seq" placeholder="e.g. 1, 5, 12" oninput="renderLogPage()">
+            <button class="secondary" onclick="document.getElementById('filter-seq').value='';renderLogPage()" style="padding:6px 10px;font-size:0.8rem">Clear</button>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>#</th><th>Level</th><th>Source</th><th>Category</th><th>Summary</th><th>Suggestion</th><th>Raw Log</th></tr></thead>
+            <tbody id="log-table"></tbody>
+        </table>
+        <div class="empty" id="empty-msg" style="display:none">No logs found. Configure the API URL and analyze some logs.</div>
+    </div>
+
+    <div class="pagination" id="log-pagination" style="display:none">
+        <div class="page-size-wrap">
+            <label>Show</label>
+            <select id="page-size" onchange="changePageSize()">
+                <option value="10">10</option>
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
+            <label>per page</label>
+        </div>
+        <div class="page-info" id="page-info"></div>
+        <div class="page-controls">
+            <button class="secondary" id="btn-first" onclick="goToPage(1)">&laquo;</button>
+            <button class="secondary" id="btn-prev" onclick="goToPage(currentLogPage-1)">&lsaquo; Prev</button>
+            <button class="secondary" id="btn-next" onclick="goToPage(currentLogPage+1)">Next &rsaquo;</button>
+            <button class="secondary" id="btn-last" onclick="goToPage(totalLogPages)">&raquo;</button>
+        </div>
+    </div>
+
+    <h2 class="section-title">Incident Reports</h2>
+    <div id="incidents"><div class="empty">No incidents yet.</div></div>
+    <div class="pagination" id="incident-pagination" style="display:none">
+        <div class="page-size-wrap">
+            <label>Show</label>
+            <select id="incident-page-size" onchange="changeIncidentPageSize()">
+                <option value="5" selected>5</option>
+                <option value="10">10</option>
+                <option value="25">25</option>
+            </select>
+            <label>per page</label>
+        </div>
+        <div class="page-info" id="incident-page-info"></div>
+        <div class="page-controls">
+            <button class="secondary" id="inc-btn-first" onclick="goToIncidentPage(1)">&laquo;</button>
+            <button class="secondary" id="inc-btn-prev" onclick="goToIncidentPage(currentIncPage-1)">&lsaquo; Prev</button>
+            <button class="secondary" id="inc-btn-next" onclick="goToIncidentPage(currentIncPage+1)">Next &rsaquo;</button>
+            <button class="secondary" id="inc-btn-last" onclick="goToIncidentPage(totalIncPages)">&raquo;</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let API_BASE = localStorage.getItem('log_analyzer_api_url') || '';
+document.getElementById('api-url-input').value = API_BASE;
+
+let allLogs = [];
+let allIncidents = [];
+let currentLogPage = 1;
+let currentIncPage = 1;
+let totalLogPages = 1;
+let totalIncPages = 1;
+
+function getPageSize() { return parseInt(document.getElementById('page-size').value); }
+function getIncidentPageSize() { return parseInt(document.getElementById('incident-page-size').value); }
+
+function saveApiUrl() {
+    const url = document.getElementById('api-url-input').value.replace(/\/+$/, '');
+    API_BASE = url;
+    localStorage.setItem('log_analyzer_api_url', url);
+    toast('API URL saved');
+    refresh();
+}
+
+function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function esc(s) {
+    if (!s) return '';
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+async function fetchStats() {
+    if (!API_BASE) return;
+    try {
+        const r = await fetch(API_BASE + '/api/stats');
+        const d = await r.json();
+        document.getElementById('stat-total').textContent = d.total || 0;
+        document.getElementById('stat-critical').textContent = d.by_level?.CRITICAL || 0;
+        document.getElementById('stat-error').textContent = d.by_level?.ERROR || 0;
+        document.getElementById('stat-warning').textContent = d.by_level?.WARNING || 0;
+        document.getElementById('stat-info').textContent = d.by_level?.INFO || 0;
+        document.getElementById('stat-debug').textContent = d.by_level?.DEBUG || 0;
+    } catch(e) { console.error('Stats fetch error', e); }
+}
+
+async function fetchLogs() {
+    if (!API_BASE) { document.getElementById('empty-msg').style.display = 'block'; return; }
+    try {
+        const p = new URLSearchParams();
+        const lv = document.getElementById('filter-level').value;
+        const cat = document.getElementById('filter-category').value;
+        if (lv) p.set('level', lv);
+        if (cat) p.set('category', cat);
+        p.set('limit', '2000');
+
+        const r = await fetch(API_BASE + '/api/logs?' + p.toString());
+        allLogs = await r.json();
+        currentLogPage = 1;
+        renderLogPage();
+    } catch(e) { console.error('Logs fetch error', e); }
+}
+
+function renderLogPage() {
+    const tbody = document.getElementById('log-table');
+    const emptyEl = document.getElementById('empty-msg');
+    const paginationEl = document.getElementById('log-pagination');
+
+    if (!allLogs.length) { tbody.innerHTML = ''; emptyEl.style.display = 'block'; paginationEl.style.display = 'none'; return; }
+    emptyEl.style.display = 'none';
+
+    // Apply seq filter
+    const seqFilter = document.getElementById('filter-seq').value.trim();
+    let filtered = allLogs;
+    if (seqFilter) {
+        const seqSet = new Set(seqFilter.split(/[,\s]+/).map(s => parseInt(s.trim())).filter(n => !isNaN(n)));
+        filtered = allLogs.filter(l => seqSet.has(parseInt(l.seq)));
+    }
+
+    const ps = getPageSize();
+    totalLogPages = Math.ceil(filtered.length / ps);
+    if (currentLogPage > totalLogPages) currentLogPage = totalLogPages;
+    if (currentLogPage < 1) currentLogPage = 1;
+    const start = (currentLogPage - 1) * ps;
+    const page = filtered.slice(start, start + ps);
+
+    tbody.innerHTML = page.map(l => `<tr>
+        <td class="log-seq">${l.seq || '-'}</td>
+        <td><span class="badge ${l.log_level}">${l.log_level}</span></td>
+        <td>${esc(l.source) || '-'}</td>
+        <td>${esc(l.category) || '-'}</td>
+        <td>${esc(l.summary)}</td>
+        <td>${esc(l.suggestion)}</td>
+        <td class="raw-cell" onclick="this.classList.toggle('expanded')" title="Click to expand">${esc(l.raw)}</td>
+    </tr>`).join('');
+
+    paginationEl.style.display = filtered.length > ps ? 'flex' : 'none';
+    document.getElementById('page-info').textContent = `Page ${currentLogPage} of ${totalLogPages} (${filtered.length} logs)`;
+    document.getElementById('btn-first').disabled = currentLogPage <= 1;
+    document.getElementById('btn-prev').disabled = currentLogPage <= 1;
+    document.getElementById('btn-next').disabled = currentLogPage >= totalLogPages;
+    document.getElementById('btn-last').disabled = currentLogPage >= totalLogPages;
+}
+
+function goToPage(n) { currentLogPage = n; renderLogPage(); }
+function changePageSize() { currentLogPage = 1; renderLogPage(); }
+
+async function fetchIncidents() {
+    if (!API_BASE) return;
+    try {
+        const r = await fetch(API_BASE + '/api/incidents');
+        allIncidents = await r.json();
+        currentIncPage = 1;
+        renderIncidentPage();
+    } catch(e) { console.error('Incidents fetch error', e); }
+}
+
+function renderIncidentPage() {
+    const div = document.getElementById('incidents');
+    const paginationEl = document.getElementById('incident-pagination');
+
+    if (!allIncidents.length) { div.innerHTML = '<div class="empty">No incidents yet.</div>'; paginationEl.style.display = 'none'; return; }
+
+    const ps = getIncidentPageSize();
+    totalIncPages = Math.ceil(allIncidents.length / ps);
+    if (currentIncPage > totalIncPages) currentIncPage = totalIncPages;
+    if (currentIncPage < 1) currentIncPage = 1;
+    const start = (currentIncPage - 1) * ps;
+    const page = allIncidents.slice(start, start + ps);
+
+    div.innerHTML = page.map(i => `<div class="incident">
+        <h3>${esc(i.title)} <span class="badge ${i.severity}">${i.severity}</span></h3>
+        <div class="meta"><strong>Root cause:</strong> ${esc(i.root_cause)}</div>
+        <div class="meta"><strong>Affected services:</strong> ${(i.affected_services||[]).join(', ')}</div>
+        <div class="meta"><strong>Related lines:</strong> <span class="clickable-lines" onclick="filterBySeqs('${(i.related_log_lines||[]).join(', ')}')">${(i.related_log_lines||[]).join(', ')}</span></div>
+        <div><strong>Recommended actions:</strong>
+            <ul>${(i.recommended_actions||[]).map(a => '<li>'+esc(a)+'</li>').join('')}</ul>
+        </div>
+    </div>`).join('');
+
+    paginationEl.style.display = allIncidents.length > ps ? 'flex' : 'none';
+    document.getElementById('incident-page-info').textContent = `Page ${currentIncPage} of ${totalIncPages} (${allIncidents.length} incidents)`;
+    document.getElementById('inc-btn-first').disabled = currentIncPage <= 1;
+    document.getElementById('inc-btn-prev').disabled = currentIncPage <= 1;
+    document.getElementById('inc-btn-next').disabled = currentIncPage >= totalIncPages;
+    document.getElementById('inc-btn-last').disabled = currentIncPage >= totalIncPages;
+}
+
+function goToIncidentPage(n) { currentIncPage = n; renderIncidentPage(); }
+function changeIncidentPageSize() { currentIncPage = 1; renderIncidentPage(); }
+
+function filterBySeqs(seqStr) {
+    document.getElementById('filter-seq').value = seqStr;
+    currentLogPage = 1;
+    renderLogPage();
+    document.getElementById('filter-seq').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function refresh() { await Promise.all([fetchStats(), fetchLogs(), fetchIncidents()]); }
+
+async function correlateIncidents() {
+    if (!API_BASE) { toast('Set the API URL first'); return; }
+    toast('Correlating incidents...');
+    try {
+        const r = await fetch(API_BASE + '/api/correlate', { method: 'POST' });
+        if (!r.ok) { const e = await r.json(); toast('Error: ' + (e.detail || 'Unknown')); return; }
+        toast('Incident report created!');
+        await refresh();
+    } catch(e) { toast('Correlation failed: ' + e.message); }
+}
+
+async function clearAll() {
+    if (!API_BASE) { toast('Set the API URL first'); return; }
+    if (!confirm('Delete all logs and incidents?')) return;
+    try {
+        await fetch(API_BASE + '/api/logs', { method: 'DELETE' });
+        toast('All data cleared');
+        await refresh();
+    } catch(e) { toast('Clear failed: ' + e.message); }
+}
+
+refresh();
+</script>
+</body>
+</html>
